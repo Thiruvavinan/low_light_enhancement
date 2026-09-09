@@ -1,6 +1,6 @@
 {
-  "tag": "uw",
-  "checkpoint": "runs/enhance_uw/last.pth",
+  "tag": "ssim_decomuw",
+  "checkpoint": "runs/enhance_ssim_on_decomuw/last.pth",
   "device": "cuda",
   "no_reference_backend": "niqe",
   "lpips_net": "alex",
@@ -12,23 +12,23 @@
   "benchmarks": {
     "LOL": {
       "n_images": 15,
-      "lpips": 0.22149362762769062,
-      "niqe": 3.7920105590150417,
-      "psnr": 19.04561214193609,
-      "ssim": 0.7542385300000508,
-      "ssim_gray": 0.8084152821084349
+      "lpips": 0.24894169767697652,
+      "niqe": 4.476196277502598,
+      "psnr": 18.947568237189103,
+      "ssim": 0.7506443500518799,
+      "ssim_gray": 0.8094273043586434
     },
     "LIME": {
       "n_images": 10,
-      "niqe": 3.9435360411846916
+      "niqe": 3.9393091135238465
     },
     "MEF": {
       "n_images": 79,
-      "niqe": 3.503440189345651
+      "niqe": 3.589333115793813
     },
     "DICM": {
       "n_images": 44,
-      "niqe": 2.69191773096481
+      "niqe": 2.9643434256325616
     }
   }
 }

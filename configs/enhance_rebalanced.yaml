@@ -1,0 +1,87 @@
+# configs/enhance_rebalanced.yaml
+# -------------------------------
+# CONTROL for configs/enhance_uw.yaml.
+#
+#   python scripts/train.py --config configs/enhance_rebalanced.yaml
+#
+# Fixed weights, set to the RELATIVE values the uncertainty-weighted arm
+# actually converged to. If this arm matches `uw`, then uncertainty weighting
+# bought interpretability rather than performance -- you could have just typed
+# these three numbers. If `uw` still wins, the schedule matters: the learned
+# weights grow over training, and a static approximation of their endpoint is
+# not the same thing.
+#
+# Where the numbers come from
+# ---------------------------
+# runs/enhance_uw converged to w_l1 = 4.277, w_ssim = 2.773, with smooth held
+# fixed at 3.0. Only ratios matter to the optimum (a global scale on the loss
+# is absorbed by the learning rate), so normalising by w_l1:
+#
+#     l1 : ssim : smooth  =  1.000 : 0.648 : 0.701
+#
+# Two things that reads off, both worth testing directly:
+#   * SSIM wants LESS weight than L1, not equal -- the hand-set 1:1 in
+#     configs/enhance_ssim.yaml over-weighted it.
+#   * Smoothness wants ~0.70, not the reference implementation's 3.0. That is
+#     a 4.3x de-emphasis, and it is the largest single change the learned
+#     weighting produced.
+#
+# Why this control is necessary
+# -----------------------------
+# The learned weights in runs/enhance_uw did not mostly REBALANCE -- they
+# mostly SCALED. w_l1 and w_ssim both climbed from 0.5 to 4.3/2.8 while their
+# ratio moved only 1.00 -> 1.54. The same holds even more strongly in
+# runs/decom_uw, where the ratios between learned terms stayed within 2% of
+# the paper's across training.
+#
+# A uniform scale-up of the learned terms does two things that have nothing to
+# do with uncertainty: it demotes every FIXED term relative to them, and it
+# acts like a rising learning rate on the learned ones. This config isolates
+# the first effect, which is the one with an interpretable explanation.
+
+experiment:
+  name: enhance_rebalanced
+  output_dir: runs/enhance_rebalanced
+  seed: 0                    # same seed as every other arm
+
+dataset:
+  name: lol
+  root: data/lol
+  splits: [our485, syn]
+  val_splits: [eval15]
+  patch_size: 96
+  augment: true
+
+dataloader:
+  batch_size: 16
+  num_workers: 4
+
+model:
+  name: retinex
+  channels: 64
+  layer_num: 5
+  kernel_size: 3
+  decom_checkpoint: runs/decom/last.pth   # the SAME stage 1 as l1 / ssim / uw
+  freeze_decom: true
+
+loss:
+  name: enhance
+  weighting: fixed           # <-- the point of this arm: no learning
+  l1_weight: 1.0
+  ssim_weight: 0.648         # runs/enhance_uw: 2.773 / 4.277
+  smooth_weight: 0.701       # runs/enhance_uw: 3.000 / 4.277
+  lambda_g: 10.0
+
+optimizer:
+  name: adam
+  lr: 1.0e-3
+
+scheduler:
+  name: multistep
+  milestones: [20]
+  gamma: 0.1
+
+training:
+  epochs: 100
+  val_every: 5
+  grad_log_every: 50
