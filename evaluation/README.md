@@ -10,6 +10,7 @@ from `training/`.
 |---|---|
 | [`metrics.py`](metrics.py) | thin wrappers over established metric libraries |
 | [`engine.py`](engine.py) | runs a model over a dataset and scores it |
+| [`denoise.py`](denoise.py) | BM3D reflectance denoising (paper Section 3.3) |
 
 ## Nothing here is hand-rolled
 
@@ -97,6 +98,37 @@ interchangeable with published NIQE numbers.
 Whichever backend ran is recorded in `summary.json` and printed in the
 results table. A metric whose protocol is not written down next to it is not
 reproducible.
+
+## BM3D denoising (`denoise.py`)
+
+Retinex-Net reconstructs `R_low * I_delta` where `R_low = S_low / I_low` — an
+implicit division by a small number in dark regions, which amplifies sensor
+noise by roughly `1/I_low`. The brightening is the point; the noise
+amplification is the cost, and it lands entirely in the reflectance. This
+project measured that cost, so denoising reflectance is the natural test of
+whether noise amplification explains the cross-dataset result.
+
+BM3D takes one scalar noise level and cannot vary it per pixel, so a strength
+suited to the darkest region would over-smooth the well-lit parts of the same
+frame. The paper's illumination-relative idea is implemented as one BM3D pass
+blended back per-pixel:
+
+```
+R_out = w * R_denoised + (1 - w) * R,      w = (1 - I_low) ** gamma
+```
+
+`gamma = 0` denoises uniformly (the ablation); larger values confine
+denoising to dark regions. Denoising happens **before** recombination with
+`I_delta`, as the paper specifies — denoising the final image would smooth
+structure the illumination map legitimately introduced.
+
+`sigma` and `gamma` are chosen by `scripts/tune_denoise.py` on **training**
+pairs, never on eval15, so no evaluation set influenced the choice. Selection
+defaults to LPIPS rather than PSNR, because PSNR actively rewards
+over-smoothing and would pick too aggressive a sigma.
+
+Cost is real: about 10 s per 400×600 image, so a full four-benchmark run adds
+roughly 25 minutes per arm.
 
 ## Memory
 

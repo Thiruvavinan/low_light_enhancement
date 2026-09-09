@@ -20,6 +20,7 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset
 
+from .denoise import BM3DReflectanceDenoiser
 from .metrics import LPIPSMetric, NoReferenceMetric, psnr, ssim, ssim_gray, summarise
 
 
@@ -70,6 +71,7 @@ def evaluate_dataset(
     lpips_metric: Optional[LPIPSMetric] = None,
     no_reference_metric: Optional[NoReferenceMetric] = None,
     save_decomposition: bool = False,
+    denoiser: Optional[BM3DReflectanceDenoiser] = None,
     progress: bool = True,
 ) -> Tuple[List[Dict[str, object]], Dict[str, float]]:
     """
@@ -82,6 +84,11 @@ def evaluate_dataset(
         once per run rather than once per image
     save_decomposition : also write R_low, I_low and I_delta, for the
         qualitative figures that show what the decomposition actually learned
+    denoiser : optional BM3D post-process on reflectance (see denoise.py).
+        Applied BEFORE recombination with I_delta, as the paper specifies --
+        denoising the final image instead would smooth structure that the
+        illumination map legitimately introduced. Purely inference-time: the
+        same trained checkpoint is used with and without it.
 
     Returns
     -------
@@ -95,6 +102,12 @@ def evaluate_dataset(
         name = sample["name"]
 
         outputs = _forward_with_oom_fallback(model, sample["low"], device, name)
+
+        if denoiser is not None and denoiser.enabled:
+            # Recompute S from the denoised reflectance rather than reusing the
+            # model's S, so the denoising actually reaches the scored image.
+            outputs["R_low"] = denoiser(outputs["R_low"], outputs["I_low"])
+            outputs["S"] = outputs["R_low"] * outputs["I_delta"]
         enhanced = outputs["S"]
 
         row: Dict[str, object] = {"name": name}

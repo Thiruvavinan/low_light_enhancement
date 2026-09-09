@@ -1,0 +1,85 @@
+# configs/enhance_uw.yaml
+# -----------------------
+# Stage 2, THIRD arm: same L1 + SSIM reconstruction loss as
+# configs/enhance_ssim.yaml, but the two reconstruction weights are LEARNED
+# by homoscedastic uncertainty (Kendall et al. 2018) instead of being fixed
+# at 1.0 / 1.0 by hand.
+#
+#   python scripts/train.py --config configs/enhance_uw.yaml
+#
+# Requires runs/decom/last.pth -- the same stage-1 checkpoint all three arms
+# load, so the decomposition is held fixed across the whole comparison.
+#
+# What this arm tests: whether the hand-set 1.0/1.0 in the SSIM arm was a
+# lucky guess or a real choice. If the learned weights land near 1:1 and the
+# metrics match, the hand-set values were fine and the tuning bought nothing
+# but removed a hyperparameter. If they diverge, the fixed values were
+# leaving something on the table.
+
+experiment:
+  name: enhance_uw
+  output_dir: runs/enhance_uw
+  seed: 0                    # same seed as the other two arms
+
+dataset:
+  name: lol
+  root: data/lol
+  splits: [our485, syn]
+  val_splits: [eval15]
+  patch_size: 96
+  augment: true
+
+dataloader:
+  batch_size: 16
+  num_workers: 4
+
+model:
+  name: retinex
+  channels: 64
+  layer_num: 5
+  kernel_size: 3
+  decom_checkpoint: runs/decom/last.pth
+  freeze_decom: true
+
+loss:
+  name: enhance
+  # Under weighting=uncertainty these two stop being magnitudes and act only
+  # as on/off switches for whether the term participates at all. The
+  # magnitudes come from the learned log-variances.
+  l1_weight: 1.0
+  ssim_weight: 1.0
+  weighting: uncertainty
+  # "gaussian" is Kendall et al. as published: 0.5*exp(-s)*L + 0.5*s. It is
+  # exact for an L2 term; for L1 (a Laplace NLL) "laplace" -- exp(-s)*L + s --
+  # is the principled form. Using the published form here because it is the
+  # one the method is known by; the alternative is a one-word change and
+  # training/weighting.py explains the difference.
+  uncertainty_mode: gaussian
+  # Which terms are LEARNED. Everything this loss produces that is not listed
+  # here keeps its fixed weight below.
+  #
+  # The smoothness term is deliberately excluded. It is a regulariser, not an
+  # observation: nothing in the data pushes back if the optimiser downweights
+  # it, so learning it tests a different question. Run that ablation with
+  #   --set loss.learned_terms="[l1, ssim_term, smooth]"
+  learned_terms: [l1, ssim_term]
+  smooth_weight: 3.0
+  lambda_g: 10.0
+
+optimizer:
+  name: adam
+  # One learning rate covers the network and the two log-variances. They are
+  # scalars with well-conditioned gradients, so this is standard practice for
+  # the method; a separate group would be a tuning knob this project has not
+  # earned the right to add.
+  lr: 1.0e-3
+
+scheduler:
+  name: multistep
+  milestones: [20]
+  gamma: 0.1
+
+training:
+  epochs: 100
+  val_every: 5
+  grad_log_every: 50

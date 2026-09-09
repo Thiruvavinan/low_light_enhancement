@@ -1,0 +1,84 @@
+# configs/decom_uw.yaml
+# ---------------------
+# Stage 1 with LEARNED loss weights, instead of the paper's fixed constants.
+#
+#   python scripts/train.py --config configs/decom_uw.yaml
+#
+# Decom-Net's loss has FIVE weighted terms, and configs/decom.yaml sets all
+# five by hand from the paper. This config learns four of them by
+# homoscedastic uncertainty (Kendall et al. 2018, training/weighting.py):
+#
+#   term          paper weight   here
+#   recon_low     1.0 (implicit) learned
+#   recon_high    1.0 (implicit) learned
+#   recon_cross   0.001          learned
+#   equal_r       0.01           learned
+#   smooth        0.1            FIXED  (regulariser -- see below)
+#
+# IMPORTANT: this produces a DIFFERENT decomposition from runs/decom. Every
+# stage-2 arm freezes a stage-1 checkpoint, so a stage-2 run trained on top
+# of this one is not comparable to the existing l1 / ssim / uw arms -- those
+# all share runs/decom/last.pth. Treat this as a separate axis: to use it,
+# retrain a stage-2 arm with
+#   --set model.decom_checkpoint=runs/decom_uw/last.pth
+# and compare that pair against each other, not against the existing table.
+
+experiment:
+  name: decom_uw
+  output_dir: runs/decom_uw
+  seed: 0
+
+dataset:
+  name: lol
+  root: data/lol
+  splits: [our485, syn]
+  val_splits: [eval15]
+  patch_size: 96
+  augment: true
+
+dataloader:
+  batch_size: 16
+  num_workers: 4
+
+model:
+  name: decom
+  channels: 64
+  layer_num: 5
+  kernel_size: 3
+
+loss:
+  name: decom
+  weighting: uncertainty
+  uncertainty_mode: gaussian
+  # The four data-coupled terms. `smooth` is excluded on purpose: it is a
+  # regulariser with no data-fit pressure to stop the optimiser downweighting
+  # it, so learning it answers a different question than learning the
+  # reconstruction weights. That question is worth asking separately --
+  #   --set loss.learned_terms="[recon_low, recon_high, recon_cross, equal_r, smooth]"
+  # -- specifically to see whether it collapses.
+  #
+  # `equal_r` is the arguable one: it is a prior on reflectance rather than a
+  # fit to observed pixels. It is grouped with the fits here because it is
+  # still computed from the data pair, but moving it to the fixed set is a
+  # defensible reading and a one-line change.
+  learned_terms: [recon_low, recon_high, recon_cross, equal_r]
+  # Fallback weights for any term NOT in learned_terms. Unchanged from the
+  # paper, so the fixed part of this config matches configs/decom.yaml.
+  cross_weight: 0.001
+  smooth_weight: 0.1
+  equal_r_weight: 0.01
+  lambda_g: 10.0
+
+optimizer:
+  name: adam
+  lr: 1.0e-3
+
+scheduler:
+  name: multistep
+  milestones: [20]
+  gamma: 0.1
+
+training:
+  epochs: 100
+  val_every: 5
+  grad_log_every: 50

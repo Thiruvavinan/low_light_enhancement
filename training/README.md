@@ -12,6 +12,7 @@ it unchanged.
 | [`losses.py`](losses.py) | every loss term, both arms of the experiment |
 | [`optim.py`](optim.py) | optimizer and LR-schedule factories |
 | [`diagnostics.py`](diagnostics.py) | per-module gradient norms |
+| [`weighting.py`](weighting.py) | learned loss weights by homoscedastic uncertainty |
 
 ## The comparison is controlled by construction
 
@@ -70,6 +71,44 @@ Clamping would zero the gradient exactly where the prediction overshoots,
 which is where a correction is needed; `data_range` only sets SSIM's
 stabilising constants, so a brief excursion above 1.0 is well-defined.
 `clamp_ssim_input=True` selects the clamped behaviour.
+
+## Learned loss weights (`weighting.py`)
+
+The Enhance-Net loss has three terms weighted 1.0 / 1.0 / 3.0 by hand. Those
+numbers are asserted, not derived. `UncertaintyWeighting` learns them instead
+(Kendall, Gal & Cipolla, CVPR 2018), by treating each term as the negative
+log-likelihood of an observation model with its own learned noise scale:
+
+```
+L = sum_i [ 0.5 * exp(-s_i) * L_i  +  0.5 * s_i ]        s_i = log(sigma_i^2)
+```
+
+The `+0.5*s_i` log-barrier is what stops the trivial solution — without it
+every weight collapses to zero and the reported loss goes to zero having
+learned nothing.
+
+Enable with `configs/enhance_uw.yaml`, or `--set loss.weighting=uncertainty`.
+
+**Two caveats that are easy to inherit unexamined:**
+
+- *The Gaussian form is exact only for an L2 term.* `mode="gaussian"`
+  reproduces the paper as published and is what everyone cites, but an L1
+  term is a **Laplace** NLL, whose correct form is `exp(-s)*L + s`.
+  `mode="laplace"` gives that. Applying either to SSIM is a heuristic in both
+  cases — `1 - SSIM` is not a likelihood, so its learned "variance" is a free
+  scale parameter with a log-barrier, not an uncertainty estimate.
+- *Regularisers are not observations.* A data-fit term is pinned by the data:
+  downweight it and its loss rises. A regulariser has no such counter-pressure,
+  so uncertainty weighting will drift it toward whatever the barrier alone
+  permits. `fixed_terms` therefore holds the smoothness prior at the paper's
+  3.0 by default; `learn_smooth_weight=true` runs the ablation.
+
+The module is Retinex-agnostic — it weights any dict of named scalar losses.
+Because it holds `nn.Parameter`s it must reach the optimiser, which
+`scripts/train.py` does by passing `loss_fn.parameters()` alongside the
+model's, and the Trainer saves `loss_state` so learned weights survive a
+checkpoint round-trip. Both are easy to forget, and forgetting either makes
+the weights silently stay at their initial value.
 
 ## Gradient diagnostics
 

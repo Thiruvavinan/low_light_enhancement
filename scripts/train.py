@@ -178,9 +178,19 @@ def main():
     loss_fn = build_loss(loss_name, **loss_cfg)
     print(f"Loss: {loss_name}  {loss_cfg}")
 
+    # The loss may itself hold learnable parameters -- uncertainty weighting
+    # keeps one log-variance per term (training/weighting.py). They must reach
+    # the optimiser or they silently stay at their initial value and the
+    # "learned" weights are not learned at all.
     opt_cfg = dict(cfg["optimizer"])
     opt_name = opt_cfg.pop("name")
-    optimizer = build_optimizer(opt_name, model.parameters(), **opt_cfg)
+    loss_params = list(loss_fn.parameters())
+    if loss_params:
+        print(f"Loss contributes {sum(p.numel() for p in loss_params)} learnable parameter(s) "
+              f"to the optimiser")
+    optimizer = build_optimizer(
+        opt_name, list(model.parameters()) + loss_params, **opt_cfg
+    )
 
     sched_cfg = dict(cfg.get("scheduler") or {})
     sched_name = sched_cfg.pop("name", None)

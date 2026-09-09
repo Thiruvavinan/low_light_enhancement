@@ -34,11 +34,13 @@ classes -- is deliberate: it makes it structurally impossible for an
 unrelated difference to sneak into the variant.
 """
 
-from typing import Dict
+from typing import Dict, Optional, Sequence
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from .weighting import UncertaintyWeighting
 
 # ----------------------------------------------------------------------
 # Gradient helpers -- exact ports of the TF reference ops
@@ -143,18 +145,58 @@ class DecomLoss(nn.Module):
     trainer can log which term is actually moving.
     """
 
+    #: every weighted term this loss produces, in report order
+    TERMS = ("recon_low", "recon_high", "recon_cross", "equal_r", "smooth")
+
     def __init__(
         self,
         cross_weight: float = 0.001,
         smooth_weight: float = 0.1,
         equal_r_weight: float = 0.01,
         lambda_g: float = 10.0,
+        weighting: str = "fixed",
+        uncertainty_mode: str = "gaussian",
+        learned_terms: Optional[Sequence[str]] = None,
     ):
         super().__init__()
         self.cross_weight = cross_weight
         self.smooth_weight = smooth_weight
         self.equal_r_weight = equal_r_weight
         self.lambda_g = lambda_g
+        self.weighting = weighting
+
+        if weighting not in ("fixed", "uncertainty"):
+            raise ValueError(f"weighting must be 'fixed' or 'uncertainty', got {weighting!r}")
+
+        self.uncertainty = None
+        if weighting == "uncertainty":
+            # The two matched reconstruction terms carry an implicit weight of
+            # 1.0 in the paper; the rest carry the published constants.
+            available = {
+                "recon_low": 1.0,
+                "recon_high": 1.0,
+                "recon_cross": cross_weight,
+                "equal_r": equal_r_weight,
+                "smooth": smooth_weight,
+            }
+            # Default: learn the four data-coupled terms, hold the regulariser.
+            # equal_r is arguable -- it is a prior on reflectance rather than a
+            # fit to observed pixels -- but it is still computed from the data
+            # pair, so it is grouped with the fits and can be moved out via
+            # learned_terms if that reading is preferred.
+            learned = list(learned_terms) if learned_terms is not None else [
+                "recon_low", "recon_high", "recon_cross", "equal_r"
+            ]
+            unknown = [t for t in learned if t not in available]
+            if unknown:
+                raise ValueError(
+                    f"learned_terms {unknown} are not produced by this loss. "
+                    f"Available: {sorted(available)}"
+                )
+            fixed = {k: v for k, v in available.items() if k not in learned}
+            self.uncertainty = UncertaintyWeighting(
+                learned, mode=uncertainty_mode, fixed_terms=fixed
+            )
 
     def forward(self, outputs: Dict[str, torch.Tensor],
                 batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
@@ -173,21 +215,28 @@ class DecomLoss(nn.Module):
         smooth_low = smoothness_loss(outputs["I_low"], r_low, self.lambda_g)
         smooth_high = smoothness_loss(outputs["I_high"], r_high, self.lambda_g)
 
-        loss = (
-            recon_low + recon_high
-            + self.cross_weight * (recon_cross_low + recon_cross_high)
-            + self.smooth_weight * (smooth_low + smooth_high)
-            + self.equal_r_weight * equal_r
-        )
-
-        return {
-            "loss": loss,
+        terms = {
             "recon_low": recon_low,
             "recon_high": recon_high,
             "recon_cross": recon_cross_low + recon_cross_high,
             "equal_r": equal_r,
             "smooth": smooth_low + smooth_high,
         }
+        components = dict(terms)
+
+        if self.uncertainty is not None:
+            loss, stats = self.uncertainty(terms)
+            components.update(stats)
+        else:
+            loss = (
+                terms["recon_low"] + terms["recon_high"]
+                + self.cross_weight * terms["recon_cross"]
+                + self.smooth_weight * terms["smooth"]
+                + self.equal_r_weight * terms["equal_r"]
+            )
+
+        components["loss"] = loss
+        return components
 
 
 # ----------------------------------------------------------------------
@@ -216,6 +265,22 @@ class EnhanceLoss(nn.Module):
     only the learned notion of "looks right" transfers -- is the open
     question this project measures.
 
+    Weighting the terms
+    -------------------
+    `weighting="fixed"` (default) uses the hand-set weights above, which are
+    the paper's. `weighting="uncertainty"` instead LEARNS the reconstruction
+    terms' weights by homoscedastic uncertainty (Kendall et al. 2018) -- see
+    training/weighting.py. Under that setting `l1_weight` and `ssim_weight`
+    stop being magnitudes and act only as on/off switches for whether a term
+    participates; the magnitude is learned.
+
+    The smoothness term is held at `smooth_weight` by default even under
+    uncertainty weighting, because it is a regulariser rather than an
+    observation: it has no data-fit pressure to stop the optimiser from
+    downweighting it toward zero. `learn_smooth_weight=True` lets it be
+    learned anyway, which is worth running as an ablation precisely to see
+    whether it collapses.
+
     Note on the SSIM input range
     ----------------------------
     I_delta is intentionally unbounded (see models/enhance_net.py), so
@@ -235,6 +300,9 @@ class EnhanceLoss(nn.Module):
         lambda_g: float = 10.0,
         ssim_window_size: int = 11,
         clamp_ssim_input: bool = False,
+        weighting: str = "fixed",
+        uncertainty_mode: str = "gaussian",
+        learned_terms: Optional[Sequence[str]] = None,
     ):
         super().__init__()
         self.l1_weight = l1_weight
@@ -242,7 +310,33 @@ class EnhanceLoss(nn.Module):
         self.smooth_weight = smooth_weight
         self.lambda_g = lambda_g
         self.clamp_ssim_input = clamp_ssim_input
+        self.weighting = weighting
         self._ssim = None
+
+        if weighting not in ("fixed", "uncertainty"):
+            raise ValueError(f"weighting must be 'fixed' or 'uncertainty', got {weighting!r}")
+
+        self.uncertainty = None
+        if weighting == "uncertainty":
+            # Every term this loss produces, with its fixed fallback weight.
+            available = {"l1": l1_weight, "smooth": smooth_weight}
+            if ssim_weight > 0:
+                available["ssim_term"] = ssim_weight
+
+            # Default: learn the reconstruction terms, hold the regulariser.
+            learned = list(learned_terms) if learned_terms is not None else (
+                ["l1"] + (["ssim_term"] if ssim_weight > 0 else [])
+            )
+            unknown = [t for t in learned if t not in available]
+            if unknown:
+                raise ValueError(
+                    f"learned_terms {unknown} are not produced by this loss. "
+                    f"Available: {sorted(available)}"
+                )
+            fixed = {k: v for k, v in available.items() if k not in learned}
+            self.uncertainty = UncertaintyWeighting(
+                learned, mode=uncertainty_mode, fixed_terms=fixed
+            )
 
         if ssim_weight > 0:
             # Imported lazily so the baseline arm has no dependency on it at all.
@@ -260,16 +354,23 @@ class EnhanceLoss(nn.Module):
         l1 = torch.mean(torch.abs(enhanced - target))
         smooth = smoothness_loss(outputs["I_delta"], outputs["R_low"], self.lambda_g)
 
+        terms = {"l1": l1, "smooth": smooth}
         components = {"l1": l1, "smooth": smooth}
-        loss = self.l1_weight * l1 + self.smooth_weight * smooth
 
         if self._ssim is not None:
             pred = enhanced.clamp(0.0, 1.0) if self.clamp_ssim_input else enhanced
             ssim_value = self._ssim(pred, target)
-            ssim_term = 1.0 - ssim_value
-            loss = loss + self.ssim_weight * ssim_term
+            terms["ssim_term"] = 1.0 - ssim_value
             components["ssim"] = ssim_value
-            components["ssim_term"] = ssim_term
+            components["ssim_term"] = terms["ssim_term"]
+
+        if self.uncertainty is not None:
+            loss, stats = self.uncertainty(terms)
+            components.update(stats)
+        else:
+            loss = self.l1_weight * l1 + self.smooth_weight * smooth
+            if "ssim_term" in terms:
+                loss = loss + self.ssim_weight * terms["ssim_term"]
 
         components["loss"] = loss
         return components

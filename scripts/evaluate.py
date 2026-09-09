@@ -40,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import torch
 
 from data.datasets import build_dataset
+from evaluation.denoise import BM3DReflectanceDenoiser
 from evaluation.engine import evaluate_dataset
 from evaluation.metrics import LPIPSMetric, NoReferenceMetric
 from models import build_model
@@ -81,6 +82,15 @@ def main():
     parser.add_argument("--skip-cross", action="store_true", help="LOL only (quick check)")
     parser.add_argument("--save-decomposition", action="store_true",
                         help="Also write R, I and I_delta for the qualitative figures")
+    parser.add_argument("--denoise", choices=["none", "bm3d"], default="none",
+                        help="BM3D post-process on reflectance (paper Section 3.3). "
+                             "Inference-time only -- the same checkpoint is scored with "
+                             "and without it, so the comparison isolates the denoiser.")
+    parser.add_argument("--denoise-sigma", type=float, default=0.04,
+                        help="BM3D noise sigma in [0,1] image scale. Tune it with "
+                             "scripts/tune_denoise.py on TRAINING pairs, never on eval15.")
+    parser.add_argument("--denoise-gamma", type=float, default=1.0,
+                        help="Illumination-relative blend exponent; 0 denoises uniformly")
     args = parser.parse_args()
 
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -91,6 +101,11 @@ def main():
     print(f"Device: {device}")
 
     model = load_model(args.checkpoint, device, args.padding_mode, args.layer_num, args.channels)
+
+    denoiser = None
+    if args.denoise == "bm3d":
+        denoiser = BM3DReflectanceDenoiser(sigma=args.denoise_sigma, gamma=args.denoise_gamma)
+        print(f"Denoiser: {denoiser}  (adds roughly 10 s per 400x600 image)")
 
     # Built once and reused; LPIPS in particular loads a network per construction.
     lpips_metric = LPIPSMetric(net=args.lpips_net, device=device)
@@ -110,6 +125,9 @@ def main():
         "lpips_net": args.lpips_net,
         "padding_mode": args.padding_mode,
         "max_side": args.max_side,
+        "denoise": args.denoise,
+        "denoise_sigma": args.denoise_sigma if args.denoise != "none" else None,
+        "denoise_gamma": args.denoise_gamma if args.denoise != "none" else None,
         "benchmarks": {},
     }
 
@@ -124,6 +142,7 @@ def main():
         lpips_metric=lpips_metric,
         no_reference_metric=no_ref,
         save_decomposition=args.save_decomposition,
+        denoiser=denoiser,
     )
     summary["benchmarks"]["LOL"] = {"n_images": len(lol), **means}
     (out_root / "LOL.json").write_text(json.dumps(rows, indent=2))
@@ -142,6 +161,7 @@ def main():
                 save_dir=out_root / "images" / name,
                 lpips_metric=None,            # no ground truth to compare against
                 no_reference_metric=no_ref,
+                denoiser=denoiser,
             )
             summary["benchmarks"][name] = {"n_images": len(ds), **means}
             (out_root / f"{name}.json").write_text(json.dumps(rows, indent=2))

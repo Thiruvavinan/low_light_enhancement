@@ -207,6 +207,10 @@ class Trainer:
             {
                 "epoch": epoch,
                 "model_state": self.model.state_dict(),
+                # The loss can carry learned parameters (uncertainty weighting).
+                # Without this they are lost on save and a resumed run silently
+                # restarts them from their initial value.
+                "loss_state": self.loss_fn.state_dict(),
                 "optimizer_state": self.optimizer.state_dict(),
                 "scheduler_state": self.scheduler.state_dict() if self.scheduler is not None else None,
                 "best_val_loss": best_val_loss,
@@ -230,6 +234,8 @@ class Trainer:
         """Restore model/optimizer/scheduler state; returns the raw checkpoint dict."""
         ckpt = torch.load(path, map_location=self.device, weights_only=False)
         self.model.load_state_dict(ckpt["model_state"])
+        if ckpt.get("loss_state"):
+            self.loss_fn.load_state_dict(ckpt["loss_state"])
         self.optimizer.load_state_dict(ckpt["optimizer_state"])
         if self.scheduler is not None and ckpt.get("scheduler_state") is not None:
             self.scheduler.load_state_dict(ckpt["scheduler_state"])
