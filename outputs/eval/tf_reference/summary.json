@@ -1,0 +1,31 @@
+{
+  "tag": "tf_reference",
+  "checkpoint": "checkpoints/tf_reference.pth",
+  "device": "cuda",
+  "no_reference_backend": "niqe",
+  "lpips_net": "alex",
+  "padding_mode": "tf_same",
+  "max_side": 0,
+  "benchmarks": {
+    "LOL": {
+      "n_images": 15,
+      "lpips": 0.47395179867744447,
+      "niqe": 8.864631844094765,
+      "psnr": 16.787997717703814,
+      "ssim": 0.4189040462176005,
+      "ssim_gray": 0.5369030333742503
+    },
+    "LIME": {
+      "n_images": 10,
+      "niqe": 4.6171554796471606
+    },
+    "MEF": {
+      "n_images": 79,
+      "niqe": 5.168336405986484
+    },
+    "DICM": {
+      "n_images": 44,
+      "niqe": 4.52798914461202
+    }
+  }
+}

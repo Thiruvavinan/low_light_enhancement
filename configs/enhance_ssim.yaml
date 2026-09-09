@@ -1,0 +1,72 @@
+# configs/enhance_ssim.yaml
+# -------------------------
+# Stage 2, VARIANT arm: Enhance-Net with an SSIM-augmented reconstruction
+# loss. This is the experiment.
+#
+#   python scripts/train.py --config configs/enhance_ssim.yaml
+#
+# Requires runs/decom/last.pth -- the SAME stage-1 checkpoint the baseline
+# arm loads, so the decomposition is held fixed across the comparison.
+#
+# This file and configs/enhance_l1.yaml differ in EXACTLY TWO substantive
+# places: experiment.name/output_dir, and loss.ssim_weight. `diff` them to
+# verify that nothing else drifted between the arms.
+
+experiment:
+  name: enhance_ssim
+  output_dir: runs/enhance_ssim
+  seed: 0                    # same seed as the L1 arm
+
+dataset:
+  name: lol
+  root: data/lol
+  splits: [our485, syn]
+  val_splits: [eval15]
+  patch_size: 96
+  augment: true
+
+dataloader:
+  batch_size: 16
+  num_workers: 4
+
+model:
+  name: retinex              # frozen Decom-Net + trainable Enhance-Net
+  channels: 64
+  layer_num: 5
+  kernel_size: 3
+  decom_checkpoint: runs/decom/last.pth
+  # Must stay true. If Decom-Net kept training here, the decomposition itself
+  # would drift differently under each loss and the comparison would no longer
+  # isolate the reconstruction term.
+  freeze_decom: true
+
+loss:
+  name: enhance
+  l1_weight: 1.0
+  # The variant. lambda_ssim = 1.0 is the first pass; sweep it without
+  # touching this file:
+  #   python scripts/train.py --config configs/enhance_ssim.yaml
+  #       --set loss.ssim_weight=0.5
+  #       --set experiment.output_dir=runs/enhance_ssim_w0.5
+  # L1 stays at 1.0 rather than being traded off against SSIM: the terms are
+  # augmentative, so the variant sees strictly more signal, not different
+  # signal. The consequence is that the two arms' training losses are on
+  # different scales -- they are compared on eval metrics, never on loss.
+  ssim_weight: 1.0           # <-- the only substantive difference between arms
+  # Paper text says 1.0 for the Enhance-Net smoothness term; the released code
+  # uses 3.0. Following the code, identically in both arms.
+  smooth_weight: 3.0
+  lambda_g: 10.0
+
+optimizer:
+  name: adam
+  lr: 1.0e-3
+
+scheduler:
+  name: multistep
+  milestones: [20]
+  gamma: 0.1
+
+training:
+  epochs: 100
+  val_every: 5

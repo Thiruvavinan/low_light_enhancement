@@ -1,0 +1,31 @@
+{
+  "tag": "input",
+  "checkpoint": "(identity -- unenhanced input)",
+  "device": "cuda",
+  "no_reference_backend": "niqe",
+  "lpips_net": "alex",
+  "padding_mode": "n/a",
+  "max_side": 0,
+  "benchmarks": {
+    "LOL": {
+      "n_images": 15,
+      "lpips": 0.559530254205068,
+      "niqe": 6.749293106671734,
+      "psnr": 7.773327812696981,
+      "ssim": 0.19521183172861736,
+      "ssim_gray": 0.19367560083701368
+    },
+    "LIME": {
+      "n_images": 10,
+      "niqe": 4.350581102738431
+    },
+    "MEF": {
+      "n_images": 79,
+      "niqe": 5.186261387720172
+    },
+    "DICM": {
+      "n_images": 44,
+      "niqe": 3.8608717522455938
+    }
+  }
+}

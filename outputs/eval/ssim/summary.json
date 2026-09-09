@@ -1,0 +1,31 @@
+{
+  "tag": "ssim",
+  "checkpoint": "runs/enhance_ssim/last.pth",
+  "device": "cuda",
+  "no_reference_backend": "niqe",
+  "lpips_net": "alex",
+  "padding_mode": "tf_same",
+  "max_side": 0,
+  "benchmarks": {
+    "LOL": {
+      "n_images": 15,
+      "lpips": 0.26513776183128357,
+      "niqe": 4.643714411066171,
+      "psnr": 18.684227406141513,
+      "ssim": 0.7221672733624777,
+      "ssim_gray": 0.7697980474497126
+    },
+    "LIME": {
+      "n_images": 10,
+      "niqe": 4.23601061103893
+    },
+    "MEF": {
+      "n_images": 79,
+      "niqe": 3.7420491330936723
+    },
+    "DICM": {
+      "n_images": 44,
+      "niqe": 3.0483187005767785
+    }
+  }
+}

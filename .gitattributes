@@ -1,0 +1,11 @@
+# Normalise line endings: store LF in the repo, check out native.
+# Without this, Windows checkouts rewrite every line and each file shows as
+# fully changed in diffs.
+* text=auto eol=lf
+
+# Binary assets -- never touch these
+*.png binary
+*.jpg binary
+*.bmp binary
+*.pth binary
+*.npz binary

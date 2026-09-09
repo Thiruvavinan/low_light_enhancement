@@ -1,0 +1,32 @@
+# Virtual environments
+.venv/
+.venv-tf/
+
+# Data -- fetched by scripts/prepare_data.py from the archives listed in data/README.md
+data/lol/
+data/cross_eval/
+*.zip
+
+# Training artifacts. Checkpoints are small (~1.8MB per stage) -- if you want
+# them tracked, un-ignore runs/*/last.pth; they are excluded by default so the
+# repo stays source-only.
+runs/
+checkpoints/
+
+# Per-image predictions: hundreds of PNGs, regenerable with scripts/evaluate.py.
+# The deliverables produced FROM them are tracked (see the negations below),
+# because the README links to them and a README with broken images is a defect.
+outputs/eval/*/images/
+
+# The vendored TensorFlow reference (upstream repo, kept locally for
+# scripts/convert_tf_weights.py -- not this project's code)
+RetinexNet/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,64 @@
+# configs/enhance_l1.yaml
+# -----------------------
+# Stage 2, BASELINE arm: Enhance-Net with the paper's L1 reconstruction loss.
+#
+#   python scripts/train.py --config configs/enhance_l1.yaml
+#
+# Requires runs/decom/last.pth (run configs/decom.yaml first).
+#
+# This file and configs/enhance_ssim.yaml differ in EXACTLY TWO substantive
+# places: experiment.name/output_dir, and loss.ssim_weight. `diff` them to
+# verify that nothing else drifted between the arms.
+
+experiment:
+  name: enhance_l1
+  output_dir: runs/enhance_l1
+  seed: 0                    # same seed as the SSIM arm
+
+dataset:
+  name: lol
+  root: data/lol
+  splits: [our485, syn]
+  val_splits: [eval15]
+  patch_size: 96
+  augment: true
+
+dataloader:
+  batch_size: 16
+  num_workers: 4
+
+model:
+  name: retinex              # frozen Decom-Net + trainable Enhance-Net
+  channels: 64
+  layer_num: 5
+  kernel_size: 3
+  decom_checkpoint: runs/decom/last.pth
+  # Must stay true. If Decom-Net kept training here, the decomposition itself
+  # would drift differently under each loss and the comparison would no longer
+  # isolate the reconstruction term.
+  freeze_decom: true
+
+loss:
+  name: enhance
+  l1_weight: 1.0
+  # The baseline arm. 0.0 removes the SSIM term entirely -- EnhanceLoss does
+  # not even import pytorch_msssim at this setting, so this arm is exactly
+  # the paper's loss with no incidental numerical difference.
+  ssim_weight: 0.0           # <-- the only substantive difference between arms
+  # Paper text says 1.0 for the Enhance-Net smoothness term; the released code
+  # uses 3.0. Following the code, identically in both arms.
+  smooth_weight: 3.0
+  lambda_g: 10.0
+
+optimizer:
+  name: adam
+  lr: 1.0e-3
+
+scheduler:
+  name: multistep
+  milestones: [20]
+  gamma: 0.1
+
+training:
+  epochs: 100
+  val_every: 5

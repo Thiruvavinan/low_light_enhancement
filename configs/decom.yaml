@@ -1,0 +1,69 @@
+# configs/decom.yaml
+# ------------------
+# Stage 1: Decom-Net. Trained ONCE and shared by both arms of the
+# L1-vs-SSIM experiment -- see configs/README.md for why.
+#
+#   python scripts/train.py --config configs/decom.yaml
+
+experiment:
+  name: decom
+  output_dir: runs/decom
+  # Both stage-2 arms reuse this seed, so they see identical crops and
+  # augmentations in identical order. Only the loss differs between them.
+  seed: 0
+
+dataset:
+  name: lol
+  root: data/lol
+  # The paper trains on the 485 real pairs PLUS the 1000 synthetic pairs
+  # (Section 4.1). Real-only is a supported ablation -- drop `syn` here --
+  # but it is not what produced the published numbers.
+  splits: [our485, syn]
+  val_splits: [eval15]       # never sampled during training
+  patch_size: 96
+  augment: true
+
+dataloader:
+  # 16 x 96 x 96 x 64ch through a 7-conv net, run twice per step (low and
+  # normal image share weights), peaks around 1.2GB on the 4GB RTX 2050 --
+  # comfortable, so the paper's batch size needs no reduction here.
+  batch_size: 16
+  num_workers: 4
+
+model:
+  name: decom
+  channels: 64
+  # 5 ReLU-activated convs between the 9x9 shallow conv and the 3x3
+  # reconstruction conv, matching the authors' released code. The paper's
+  # text reads as 3; see models/decom_net.py for the discrepancy.
+  layer_num: 5
+  kernel_size: 3
+
+loss:
+  name: decom
+  cross_weight: 0.001        # lambda_ij for the mismatched R_i * I_j pairs
+  smooth_weight: 0.1         # lambda_is
+  # Paper text says 0.001; the released code uses 0.01. Following the code
+  # (see training/losses.py). Lowering it weakens the constraint that low-
+  # and normal-light reflectance must agree, which is the whole Retinex prior.
+  equal_r_weight: 0.01       # lambda_ir
+  lambda_g: 10.0             # gradient sensitivity in the smoothness weight
+
+optimizer:
+  name: adam
+  lr: 1.0e-3
+
+scheduler:
+  # The authors build an explicit LR array: 1e-3 for epochs 0-19, 1e-4 after.
+  # MultiStepLR(milestones=[20], gamma=0.1) is the same schedule.
+  name: multistep
+  milestones: [20]
+  gamma: 0.1
+
+training:
+  epochs: 100
+  val_every: 5
+  # Deliberately absent: no early stopping. A fixed budget keeps the two
+  # stage-2 arms comparable; an arm-dependent stopping epoch would confound
+  # the result with training length.
+  # early_stopping_patience: null

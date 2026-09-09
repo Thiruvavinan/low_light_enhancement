@@ -1,0 +1,31 @@
+{
+  "tag": "l1",
+  "checkpoint": "runs/enhance_l1/last.pth",
+  "device": "cuda",
+  "no_reference_backend": "niqe",
+  "lpips_net": "alex",
+  "padding_mode": "tf_same",
+  "max_side": 0,
+  "benchmarks": {
+    "LOL": {
+      "n_images": 15,
+      "lpips": 0.44214092095692953,
+      "niqe": 5.883396128803344,
+      "psnr": 18.25509244957558,
+      "ssim": 0.5949204564094543,
+      "ssim_gray": 0.6221081856020427
+    },
+    "LIME": {
+      "n_images": 10,
+      "niqe": 5.0341992626475776
+    },
+    "MEF": {
+      "n_images": 79,
+      "niqe": 4.870374329003331
+    },
+    "DICM": {
+      "n_images": 44,
+      "niqe": 4.1151506252931656
+    }
+  }
+}
