@@ -62,8 +62,17 @@ loss:
   # still computed from the data pair, but moving it to the fixed set is a
   # defensible reading and a one-line change.
   learned_terms: [recon_low, recon_high, recon_cross, equal_r]
-  # Fallback weights for any term NOT in learned_terms. Unchanged from the
-  # paper, so the fixed part of this config matches configs/decom.yaml.
+  # Start every learned weight AT the paper's value below, so step 0
+  # reproduces configs/decom.yaml exactly and anything that moves afterwards
+  # was genuinely learned. This matters more here than anywhere else in the
+  # project: the paper's weights span 1.0 to 0.001, so without it the
+  # cross-reconstruction term would start at 500x its intended strength --
+  # and it is small on purpose, because at full strength it pushes the
+  # decomposition toward treating the two reflectances as interchangeable.
+  # Set false to start every learned term at the same weight instead.
+  init_at_fixed_weights: true
+  # Weights used for terms NOT in learned_terms, and as the starting point for
+  # the terms that are. Unchanged from the paper.
   cross_weight: 0.001
   smooth_weight: 0.1
   equal_r_weight: 0.01

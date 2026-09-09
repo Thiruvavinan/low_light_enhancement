@@ -73,6 +73,7 @@ Because it holds `nn.Parameter`s, it must be handed to the optimiser --
 passes the loss's parameters alongside the model's.
 """
 
+import math
 from typing import Dict, Mapping, Optional, Sequence, Tuple
 
 import torch
@@ -90,10 +91,23 @@ class UncertaintyWeighting(nn.Module):
     mode : "gaussian" -> 0.5*exp(-s)*L + 0.5*s   (Kendall et al. as published;
                exact for an L2 term)
            "laplace"  -> exp(-s)*L + s           (exact for an L1 term)
-    init_log_var : starting value of every s_i. 0.0 means sigma = 1, i.e. every
-        learned term starts at effective weight 0.5 (gaussian) or 1.0
-        (laplace), so the run begins near the unweighted sum rather than at an
-        arbitrary point.
+    init_weights : name -> the effective weight each term should START at.
+        The log-variance is solved backwards from it, so step 0 reproduces
+        that weighting exactly. This is almost always what you want: it makes
+        the run begin at the hand-tuned configuration you are comparing
+        against, so any movement afterwards is genuinely learned rather than
+        an artefact of where the optimiser was dropped.
+
+        Without it every term starts at the same weight regardless of what it
+        should be, which is badly wrong when the hand-set weights span orders
+        of magnitude. Retinex-Net's Decom-Net loss is exactly that case: its
+        cross-reconstruction term is weighted 0.001 and its matched terms
+        1.0, so a uniform start puts the cross term at 500x its intended
+        strength from the first step -- and that term is deliberately small
+        because at full strength it pushes the decomposition toward treating
+        the two reflectances as interchangeable.
+    init_log_var : fallback starting s_i for any term not named in
+        `init_weights`. 0.0 means sigma = 1.
     fixed_terms : name -> constant weight, for terms that should NOT be
         learned (regularisers -- see the module docstring).
 
@@ -109,6 +123,7 @@ class UncertaintyWeighting(nn.Module):
         mode: str = "gaussian",
         init_log_var: float = 0.0,
         fixed_terms: Optional[Mapping[str, float]] = None,
+        init_weights: Optional[Mapping[str, float]] = None,
     ):
         super().__init__()
         if mode not in MODES:
@@ -127,7 +142,27 @@ class UncertaintyWeighting(nn.Module):
         # One log-variance per learned term. A single Parameter vector rather
         # than a ParameterDict so the whole set moves to a device, is saved,
         # and is handed to the optimiser as one object.
-        self.log_var = nn.Parameter(torch.full((len(self.terms),), float(init_log_var)))
+        initial = torch.full((len(self.terms),), float(init_log_var))
+        for index, name in enumerate(self.terms):
+            target = (init_weights or {}).get(name)
+            if target is not None:
+                initial[index] = self._log_var_for_weight(float(target))
+        self.log_var = nn.Parameter(initial)
+
+    def _log_var_for_weight(self, weight: float) -> float:
+        """
+        Invert `weight_of`: the s that makes this term start at `weight`.
+
+            gaussian  w = 0.5 * exp(-s)  ->  s = -log(2w)
+            laplace   w = exp(-s)        ->  s = -log(w)
+        """
+        if weight <= 0:
+            raise ValueError(
+                f"init weight must be positive, got {weight}. A term that should start "
+                f"at zero weight does not belong in the learned set -- leave it out."
+            )
+        scale = 0.5 if self.mode == "gaussian" else 1.0
+        return -math.log(weight / scale)
 
     def extra_repr(self) -> str:
         return f"terms={self.terms}, mode={self.mode}, fixed={self.fixed_terms}"

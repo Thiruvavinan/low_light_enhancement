@@ -89,6 +89,18 @@ learned nothing.
 
 Enable with `configs/enhance_uw.yaml`, or `--set loss.weighting=uncertainty`.
 
+**Learned weights start at the hand-set ones.** `init_at_fixed_weights` (on
+by default) solves each log-variance backwards from the fixed weight, so step
+0 reproduces the hand-tuned configuration exactly and anything that moves
+afterwards was genuinely learned. Skipping this starts every term at the same
+weight regardless of scale — which is badly wrong when the hand-set weights
+span orders of magnitude. Decom-Net is exactly that case: its weights run from
+1.0 to 0.001, so a uniform start puts the cross-reconstruction term at **500×**
+its intended strength, and that term is small on purpose. "Learned beats
+fixed" measured from a start 500× away from fixed is not a comparison of
+weighting schemes; it is a measurement of how well the optimiser recovers from
+a bad initialisation.
+
 **Two caveats that are easy to inherit unexamined:**
 
 - *The Gaussian form is exact only for an L2 term.* `mode="gaussian"`

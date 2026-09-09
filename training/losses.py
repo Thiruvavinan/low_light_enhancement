@@ -157,6 +157,7 @@ class DecomLoss(nn.Module):
         weighting: str = "fixed",
         uncertainty_mode: str = "gaussian",
         learned_terms: Optional[Sequence[str]] = None,
+        init_at_fixed_weights: bool = True,
     ):
         super().__init__()
         self.cross_weight = cross_weight
@@ -194,8 +195,16 @@ class DecomLoss(nn.Module):
                     f"Available: {sorted(available)}"
                 )
             fixed = {k: v for k, v in available.items() if k not in learned}
+            # Start each learned weight AT the paper's value, so step 0
+            # reproduces the fixed-weight configuration exactly and anything
+            # that moves afterwards was actually learned. Without this the
+            # terms all start equal regardless of scale -- see
+            # training/weighting.py, `init_weights`.
             self.uncertainty = UncertaintyWeighting(
-                learned, mode=uncertainty_mode, fixed_terms=fixed
+                learned,
+                mode=uncertainty_mode,
+                fixed_terms=fixed,
+                init_weights=available if init_at_fixed_weights else None,
             )
 
     def forward(self, outputs: Dict[str, torch.Tensor],
@@ -303,6 +312,7 @@ class EnhanceLoss(nn.Module):
         weighting: str = "fixed",
         uncertainty_mode: str = "gaussian",
         learned_terms: Optional[Sequence[str]] = None,
+        init_at_fixed_weights: bool = True,
     ):
         super().__init__()
         self.l1_weight = l1_weight
@@ -334,8 +344,16 @@ class EnhanceLoss(nn.Module):
                     f"Available: {sorted(available)}"
                 )
             fixed = {k: v for k, v in available.items() if k not in learned}
+            # Start each learned weight AT the paper's value, so step 0
+            # reproduces the fixed-weight configuration exactly and anything
+            # that moves afterwards was actually learned. Without this the
+            # terms all start equal regardless of scale -- see
+            # training/weighting.py, `init_weights`.
             self.uncertainty = UncertaintyWeighting(
-                learned, mode=uncertainty_mode, fixed_terms=fixed
+                learned,
+                mode=uncertainty_mode,
+                fixed_terms=fixed,
+                init_weights=available if init_at_fixed_weights else None,
             )
 
         if ssim_weight > 0:
