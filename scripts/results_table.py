@@ -47,7 +47,7 @@ BENCHMARK_ORDER = ["LOL", "LIME", "MEF", "DICM"]
 GROUPS = [
     ("Reference points", ["input", "tf_reference"]),
     ("Loss comparison (shared Decom-Net)", ["l1", "ssim", "uw", "rebalanced"]),
-    ("+ BM3D denoising", ["l1_bm3d", "ssim_bm3d", "uw_bm3d"]),
+    ("+ BM3D denoising (sigma tuned by LPIPS)", ["l1_bm3d", "ssim_bm3d", "uw_bm3d"]),
     ("Stage-1 axis (different decomposition)", ["ssim_decomuw", "ssim_lowsmooth"]),
 ]
 
