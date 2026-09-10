@@ -74,8 +74,11 @@ Every configuration, every metric. **Bold is scoped within a block** — blocks 
 | L1 + SSIM + BM3D on R <sub>`ssim_bm3d`</sub> | 18.79 | **0.7910** | **0.8460** | **0.1900** | 4.33 | 4.47 | 3.91 | 3.21 |
 | Uncertainty-weighted + BM3D on R <sub>`uw_bm3d`</sub> | 19.07 | 0.7717 | 0.8276 | 0.2059 | **3.59** | 4.09 | 3.59 | 2.76 |
 | Fixed 1.00 : 0.65 : 0.70 + BM3D on R <sub>`rebalanced_bm3d`</sub> | **19.13** | 0.7773 | 0.8360 | 0.1947 | 3.61 | **4.09** | **3.51** | **2.71** |
-| **+ BM3D with sigma re-tuned on NIQE instead of LPIPS — compare against `l1_bm3d`** | | | | | | | | |
-| L1 recon + BM3D on R, σ re-tuned on NIQE <sub>`l1_bm3d_niqe`</sub> | 18.36 | 0.6730 | 0.7122 | 0.3549 | 5.46 | 5.18 | 4.96 | 4.18 |
+| **+ BM3D with sigma re-tuned on NIQE (0.04 for all four) instead of LPIPS** | | | | | | | | |
+| L1 recon + BM3D, σ re-tuned on NIQE <sub>`l1_bm3d_niqe`</sub> | 18.36 | 0.6730 | 0.7122 | 0.3549 | 5.46 | 5.18 | 4.96 | 4.18 |
+| L1 + SSIM + BM3D, σ re-tuned on NIQE <sub>`ssim_bm3d_niqe`</sub> | 18.75 | 0.7739 | 0.8292 | 0.2074 | 4.29 | 4.47 | 3.81 | 3.12 |
+| Uncertainty-weighted + BM3D, σ re-tuned on NIQE <sub>`uw_bm3d_niqe`</sub> | 19.09 | **0.7805** | **0.8380** | **0.1976** | **3.69** | 4.22 | 3.64 | 2.83 |
+| Fixed 1.00 : 0.65 : 0.70 + BM3D, σ re-tuned on NIQE <sub>`rebalanced_bm3d_niqe`</sub> | **19.14** | 0.7787 | 0.8378 | 0.2022 | 3.76 | **4.17** | **3.57** | **2.82** |
 | **Decom-Net variants — different frozen stage 1, NOT comparable to the block above** | | | | | | | | |
 | L1 + SSIM, on uncertainty-weighted Decom-Net <sub>`ssim_decomuw`</sub> | **18.95** | 0.7506 | 0.8094 | 0.2489 | 4.48 | **3.94** | **3.59** | **2.96** |
 | L1 + SSIM, on low-λ_is Decom-Net <sub>`ssim_lowsmooth`</sub> | 18.88 | **0.7678** | **0.8252** | **0.2257** | **4.33** | 4.09 | 3.82 | 3.12 |
@@ -97,6 +100,9 @@ Identical for every row — images scored: LOL:15, LIME:10, MEF:79, DICM:44; no-
 | L1 + SSIM + BM3D on R <sub>`ssim_bm3d`</sub> | `runs/enhance_ssim/last.pth` | BM3D σ=0.08 γ=2.0 |
 | Uncertainty-weighted + BM3D on R <sub>`uw_bm3d`</sub> | `runs/enhance_uw/last.pth` | BM3D σ=0.02 γ=1.0 |
 | Fixed 1.00 : 0.65 : 0.70 + BM3D on R <sub>`rebalanced_bm3d`</sub> | `runs/enhance_rebalanced/last.pth` | BM3D σ=0.02 γ=2.0 |
-| L1 recon + BM3D on R, σ re-tuned on NIQE <sub>`l1_bm3d_niqe`</sub> | `runs/enhance_l1/last.pth` | BM3D σ=0.04 γ=2.0 |
+| L1 recon + BM3D, σ re-tuned on NIQE <sub>`l1_bm3d_niqe`</sub> | `runs/enhance_l1/last.pth` | BM3D σ=0.04 γ=2.0 |
+| L1 + SSIM + BM3D, σ re-tuned on NIQE <sub>`ssim_bm3d_niqe`</sub> | `runs/enhance_ssim/last.pth` | BM3D σ=0.04 γ=2.0 |
+| Uncertainty-weighted + BM3D, σ re-tuned on NIQE <sub>`uw_bm3d_niqe`</sub> | `runs/enhance_uw/last.pth` | BM3D σ=0.04 γ=2.0 |
+| Fixed 1.00 : 0.65 : 0.70 + BM3D, σ re-tuned on NIQE <sub>`rebalanced_bm3d_niqe`</sub> | `runs/enhance_rebalanced/last.pth` | BM3D σ=0.04 γ=2.0 |
 | L1 + SSIM, on uncertainty-weighted Decom-Net <sub>`ssim_decomuw`</sub> | `runs/enhance_ssim_on_decomuw/last.pth` | — |
 | L1 + SSIM, on low-λ_is Decom-Net <sub>`ssim_lowsmooth`</sub> | `runs/enhance_ssim_on_lowsmooth/last.pth` | — |

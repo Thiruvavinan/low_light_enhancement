@@ -17,10 +17,10 @@ evaluation the original paper reports only as side-by-side pictures.
 Two secondary results. Learning the loss weights by homoscedastic uncertainty
 converges to `1.00 : 0.65 : 0.70` and beats the paper — but a *fixed* config at
 those same ratios matches or beats the learned one, so the method found the
-weights rather than needing to learn them. And the paper's BM3D step improves
-NIQE in-distribution, including on held-out images, yet **a denoising strength
-fitted to LOL does not transfer to other datasets** — a domain-shift failure,
-not overfitting.
+weights rather than needing to learn them. And the paper's BM3D step helps
+in-distribution yet **degrades cross-dataset naturalness in all eight
+configurations tested**, monotonically in denoising strength — a domain-shift
+failure, not a tuning mistake.
 
 ---
 
@@ -151,27 +151,34 @@ scaled **13× uniformly** and the ratios stayed within **3%** of the paper's.
 An independent validation of Wei et al.'s constants, and a negative result for
 the method — a global scale is absorbed by the learning rate.
 
-**BM3D transfers to unseen images, but not to unseen datasets.** Denoising
-nearly doubles the L1 configuration's LOL SSIM (0.595 → 0.773), yet degrades
-cross-dataset NIQE. Two things were tangled there, and separating them changes
-the conclusion. The `_bm3d` rows tune σ on **LPIPS**, which rewards smoothing
-toward a clean reference; re-tuning on **NIQE** (no ground truth needed, so
-still leak-free on training images) picks σ=0.04 rather than 0.16:
+**BM3D never helps out of distribution — at any strength tested.** Denoising
+nearly doubles the L1 configuration's LOL SSIM (0.595 → 0.773), and degrades
+cross-dataset NIQE for **every** model. Running all four loss configurations
+at two independently chosen σ values gives eight denoised configurations, and
+all eight are worse cross-dataset than not denoising at all:
 
-| L1 + BM3D | cross-dataset NIQE | vs. no denoising |
-|:---|:---:|:---:|
-| σ = 0.16, tuned on LPIPS | 5.03 | +0.36 |
-| σ = 0.04, tuned on NIQE | 4.78 | +0.10 |
-| *no denoising* | *4.67* | *—* |
+| model | σ = 0 (none) | LPIPS-tuned σ | NIQE-tuned σ = 0.04 |
+|:---|:---:|:---:|:---:|
+| L1 recon | **4.67** | 5.03 *(σ=0.16)* | 4.78 |
+| L1 + SSIM | **3.68** | 3.86 *(σ=0.08)* | 3.80 |
+| uncertainty-weighted | **3.38** | 3.48 *(σ=0.02)* | 3.56 |
+| fixed rebalanced | **3.38** | 3.44 *(σ=0.02)* | 3.52 |
 
-**71% of the apparent harm was the tuning objective, not the denoiser** — my
-error, not the method's. The residual is still positive, and the diagnosis is
-specific: at σ=0.04 denoising improves NIQE by −0.41 on the tuning images and
-−0.42 on held-out LOL. It transfers perfectly to unseen images of the *same*
-kind and fails only when the dataset changes, so this is domain shift in the
-noise statistics rather than overfitting to the sweep. That points at a fix
-this project did not try: estimate σ per dataset, or per image from the
-input's own noise, instead of fitting one value on LOL.
+For every model the relationship is **monotonic in σ**: more denoising, worse
+cross-dataset naturalness, with the optimum at zero. So the tuning objective
+was a red herring — it changed *how much* harm, not *whether* there was harm.
+
+The diagnosis is domain shift, and one detail pins it down. LPIPS-optimal σ
+varies 8× across models (0.16 → 0.02) because it is correcting *the model*:
+the noisier the output, the more smoothing it wants. NIQE-optimal σ is
+**0.04 for all four**, because it is responding to the *input sensor noise*,
+which is the same in every case. A σ set by LOL's noise has no reason to suit
+LIME, MEF or DICM — and measured on held-out LOL images it transfers fine
+(−0.41 on the tuning set, −0.42 on eval15). It fails only when the dataset
+changes.
+
+That points at the fix this project did not try: estimate σ per dataset, or
+per image from the input's own noise, rather than fitting one value on LOL.
 
 **What not to read into it.** One seed per configuration, no error bars. BM3D
 σ was tuned on training images the network had already seen. Cross-dataset

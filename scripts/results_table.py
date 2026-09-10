@@ -80,7 +80,10 @@ LABELS = {
     "ssim_bm3d":      "L1 + SSIM + BM3D on R",
     "uw_bm3d":        "Uncertainty-weighted + BM3D on R",
     "rebalanced_bm3d": "Fixed 1.00 : 0.65 : 0.70 + BM3D on R",
-    "l1_bm3d_niqe":   "L1 recon + BM3D on R, σ re-tuned on NIQE",
+    "l1_bm3d_niqe":   "L1 recon + BM3D, σ re-tuned on NIQE",
+    "ssim_bm3d_niqe": "L1 + SSIM + BM3D, σ re-tuned on NIQE",
+    "uw_bm3d_niqe":   "Uncertainty-weighted + BM3D, σ re-tuned on NIQE",
+    "rebalanced_bm3d_niqe": "Fixed 1.00 : 0.65 : 0.70 + BM3D, σ re-tuned on NIQE",
     "ssim_decomuw":   "L1 + SSIM, on uncertainty-weighted Decom-Net",
     "ssim_lowsmooth": "L1 + SSIM, on low-λ_is Decom-Net",
 }
@@ -109,8 +112,8 @@ GROUPS = [
      ["l1", "ssim", "uw", "rebalanced"]),
     ("+ BM3D on reflectance, inference-time only (sigma tuned by LPIPS on train pairs)",
      ["l1_bm3d", "ssim_bm3d", "uw_bm3d", "rebalanced_bm3d"]),
-    ("+ BM3D with sigma re-tuned on NIQE instead of LPIPS — compare against `l1_bm3d`",
-     ["l1_bm3d_niqe"]),
+    ("+ BM3D with sigma re-tuned on NIQE (0.04 for all four) instead of LPIPS",
+     ["l1_bm3d_niqe", "ssim_bm3d_niqe", "uw_bm3d_niqe", "rebalanced_bm3d_niqe"]),
     ("Decom-Net variants — different frozen stage 1, NOT comparable to the block above",
      ["ssim_decomuw", "ssim_lowsmooth"]),
 ]

@@ -38,6 +38,7 @@ python scripts/plot_history.py --run runs/enhance_l1 --run runs/enhance_ssim --m
 | [`verify_port.py`](verify_port.py) | **check the port against the original TF graph** |
 | [`check_determinism.py`](check_determinism.py) | **check that every configuration sees identical training data** |
 | [`verify_reported.py`](verify_reported.py) | **check that every published number is backed by a `summary.json`** |
+| [`regen_log_index.py`](regen_log_index.py) | regenerate the run index in the (gitignored) experiment log |
 
 ## `verify_port.py` is the one to notice
 

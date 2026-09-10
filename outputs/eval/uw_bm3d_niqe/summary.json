@@ -1,0 +1,34 @@
+{
+  "tag": "uw_bm3d_niqe",
+  "checkpoint": "runs/enhance_uw/last.pth",
+  "device": "cpu",
+  "no_reference_backend": "niqe",
+  "lpips_net": "alex",
+  "padding_mode": "tf_same",
+  "max_side": 0,
+  "denoise": "bm3d",
+  "denoise_sigma": 0.04,
+  "denoise_gamma": 2.0,
+  "benchmarks": {
+    "LOL": {
+      "n_images": 15,
+      "lpips": 0.19764599055051804,
+      "niqe": 3.694343861673919,
+      "psnr": 19.08657289765591,
+      "ssim": 0.7805290341377258,
+      "ssim_gray": 0.8379812603676868
+    },
+    "LIME": {
+      "n_images": 10,
+      "niqe": 4.216545038035763
+    },
+    "MEF": {
+      "n_images": 79,
+      "niqe": 3.641642576848269
+    },
+    "DICM": {
+      "n_images": 44,
+      "niqe": 2.825452661192383
+    }
+  }
+}
