@@ -19,13 +19,12 @@ Identical architecture, frozen Decom-Net, seed, data order and schedule; only th
 
 The same four checkpoints, re-scored with BM3D applied to reflectance before recombination. Sigma and gamma are tuned per model on training pairs, so each row gets the denoising strength that suits it rather than a shared setting.
 
-> Not yet evaluated: L1 + SSIM, fixed 1.00 : 0.65 : 0.70.
-
 | Model | LOL PSNR ↑ | LOL SSIM ↑ | LOL LPIPS ↓ | LIME NIQE ↓ | MEF NIQE ↓ | DICM NIQE ↓ |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|
 | L1 recon — paper baseline <sub>`l1_bm3d`</sub> | 18.54 | 0.7734 | 0.2323 | 5.15 | 5.53 | 4.42 |
 | L1 + SSIM recon <sub>`ssim_bm3d`</sub> | 18.79 | **0.7910** | **0.1900** | 4.47 | 3.91 | 3.21 |
-| L1 + SSIM, uncertainty-weighted <sub>`uw_bm3d`</sub> | **19.07** | 0.7717 | 0.2059 | **4.09** | **3.59** | **2.76** |
+| L1 + SSIM, uncertainty-weighted <sub>`uw_bm3d`</sub> | 19.07 | 0.7717 | 0.2059 | 4.09 | 3.59 | 2.76 |
+| L1 + SSIM, fixed 1.00 : 0.65 : 0.70 <sub>`rebalanced_bm3d`</sub> | **19.13** | 0.7773 | 0.1947 | **4.09** | **3.51** | **2.71** |
 
 ### How much of the loss effect is just noise?
 
@@ -33,9 +32,9 @@ Spread = best minus worst across the loss configurations. If a generic denoiser 
 
 | Metric | spread without BM3D | spread with BM3D | absorbed by denoising |
 |:---|:---:|:---:|:---:|
-| LOL LPIPS ↓ | 0.2206 | 0.0423 | **+81%** |
-| LOL SSIM ↑ | 0.1593 | 0.0192 | **+88%** |
-| cross-dataset NIQE ↓ | 1.2936 | 1.5502 | **-20%** |
+| LOL LPIPS ↓ | 0.2366 | 0.0423 | **+82%** |
+| LOL SSIM ↑ | 0.1678 | 0.0192 | **+89%** |
+| cross-dataset NIQE ↓ | 1.2936 | 1.5976 | **-24%** |
 
 **Reading.** On LOL, a standard denoiser reproduces most of what the loss change bought — the losses become close to interchangeable once all of them are denoised, and the LPIPS ranking even reorders.
 
@@ -77,6 +76,8 @@ Every configuration, every metric. **Bold is scoped within a block** — blocks 
 | **Decom-Net variants — different frozen stage 1, NOT comparable to the block above** | | | | | | | | |
 | L1 + SSIM, on uncertainty-weighted Decom-Net <sub>`ssim_decomuw`</sub> | **18.95** | 0.7506 | 0.8094 | 0.2489 | 4.48 | **3.94** | **3.59** | **2.96** |
 | L1 + SSIM, on low-λ_is Decom-Net <sub>`ssim_lowsmooth`</sub> | 18.88 | **0.7678** | **0.8252** | **0.2257** | **4.33** | 4.09 | 3.82 | 3.12 |
+| **Other** | | | | | | | | |
+| `rebalanced_bm3d` | 19.13 | 0.7773 | 0.8360 | 0.1947 | 3.61 | 4.09 | 3.51 | 2.71 |
 
 
 ### Protocol
@@ -94,5 +95,6 @@ Identical for every row — images scored: LOL:15, LIME:10, MEF:79, DICM:44; no-
 | L1 recon + BM3D on R <sub>`l1_bm3d`</sub> | `runs/enhance_l1/last.pth` | BM3D σ=0.16 γ=1.0 |
 | L1 + SSIM + BM3D on R <sub>`ssim_bm3d`</sub> | `runs/enhance_ssim/last.pth` | BM3D σ=0.08 γ=2.0 |
 | Uncertainty-weighted + BM3D on R <sub>`uw_bm3d`</sub> | `runs/enhance_uw/last.pth` | BM3D σ=0.02 γ=1.0 |
+| rebalanced_bm3d <sub>`rebalanced_bm3d`</sub> | `runs/enhance_rebalanced/last.pth` | BM3D σ=0.02 γ=2.0 |
 | L1 + SSIM, on uncertainty-weighted Decom-Net <sub>`ssim_decomuw`</sub> | `runs/enhance_ssim_on_decomuw/last.pth` | — |
 | L1 + SSIM, on low-λ_is Decom-Net <sub>`ssim_lowsmooth`</sub> | `runs/enhance_ssim_on_lowsmooth/last.pth` | — |

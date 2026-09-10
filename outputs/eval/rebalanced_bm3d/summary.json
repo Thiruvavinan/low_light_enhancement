@@ -1,0 +1,34 @@
+{
+  "tag": "rebalanced_bm3d",
+  "checkpoint": "runs/enhance_rebalanced/last.pth",
+  "device": "cpu",
+  "no_reference_backend": "niqe",
+  "lpips_net": "alex",
+  "padding_mode": "tf_same",
+  "max_side": 0,
+  "denoise": "bm3d",
+  "denoise_sigma": 0.02,
+  "denoise_gamma": 2.0,
+  "benchmarks": {
+    "LOL": {
+      "n_images": 15,
+      "lpips": 0.19469629327456156,
+      "niqe": 3.61325912186,
+      "psnr": 19.12962221755362,
+      "ssim": 0.7773294885953267,
+      "ssim_gray": 0.8360487445742479
+    },
+    "LIME": {
+      "n_images": 10,
+      "niqe": 4.0868686179609295
+    },
+    "MEF": {
+      "n_images": 79,
+      "niqe": 3.50651284826981
+    },
+    "DICM": {
+      "n_images": 44,
+      "niqe": 2.7121131452839604
+    }
+  }
+}
