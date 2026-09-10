@@ -66,38 +66,45 @@ BENCHMARK_ORDER = ["LOL", "LIME", "MEF", "DICM"]
 # conversation that produced it. The tag is still printed alongside so a row
 # can be traced back to the command that made it.
 LABELS = {
-    "input":          "No enhancement (the input image)",
-    "tf_reference":   "Authors' released weights",
-    "l1":             "Paper baseline — L1 loss",
-    "ssim":           "+ SSIM loss term",
-    "uw":             "+ learned loss weights",
-    "rebalanced":     "+ fixed rebalanced weights",
-    "l1_bm3d":        "Paper baseline + BM3D denoising",
-    "ssim_bm3d":      "+ SSIM + BM3D denoising",
-    "uw_bm3d":        "+ learned weights + BM3D denoising",
-    "ssim_decomuw":   "+ SSIM, on the learned decomposition",
-    "ssim_lowsmooth": "+ SSIM, on the low-smoothness decomposition",
+    "input":          "Identity (no enhancement)",
+    "tf_reference":   "Wei et al. released weights, ported",
+    "l1":             "L1 recon — paper baseline",
+    "ssim":           "L1 + SSIM recon",
+    "uw":             "L1 + SSIM, uncertainty-weighted",
+    "rebalanced":     "L1 + SSIM, fixed 1.00 : 0.65 : 0.70",
+    "l1_bm3d":        "L1 recon + BM3D on R",
+    "ssim_bm3d":      "L1 + SSIM + BM3D on R",
+    "uw_bm3d":        "Uncertainty-weighted + BM3D on R",
+    "ssim_decomuw":   "L1 + SSIM, on uncertainty-weighted Decom-Net",
+    "ssim_lowsmooth": "L1 + SSIM, on low-λ_is Decom-Net",
 }
 
 # Shown once, above the first table, so the columns mean something on their own.
-LEGEND = """**How to read this.** LOL has matching normal-light photographs, so those
-columns compare each output against a known correct answer:
-**PSNR** and **SSIM** (higher is better) and **LPIPS** (lower is better, and
-the closest of the three to human judgement).
+LEGEND = """**Protocol.** LOL `eval15` is paired, so it carries full-reference
+metrics (PSNR / SSIM / LPIPS-Alex). LIME / MEF / DICM are unpaired and unseen
+during training, so they carry NIQE only — which is why the identity row is
+reported: a no-reference score is uninterpretable without it.
 
-LIME, MEF and DICM have **no** correct answer to compare against — they are
-different datasets the models never saw. **NIQE** (lower is better) scores how
-*natural* an image looks on its own, with no reference. That is what makes the
-first row matter: an enhancement can score worse than the untouched input.
+SSIM is RGB, channel-averaged, with MATLAB-equivalent parameters
+(`gaussian_weights=True, sigma=1.5, use_sample_covariance=False`). The
+`SSIM-gray` column in the full table is the luma variant, and is the one
+comparable to the 0.560 usually quoted for Retinex-Net — the two conventions
+differ by ~0.12 here, more than most of the effects being measured.
+
+All metrics are computed on outputs clamped to [0,1] and quantised to 8 bits,
+at native resolution, identically for every row.
 """
 
 # Layout only -- see the module docstring. Any tag not listed still prints,
 # under "Other", so this cannot silently hide an arm.
 GROUPS = [
     ("Reference points", ["input", "tf_reference"]),
-    ("Changing the loss (everything else held fixed)", ["l1", "ssim", "uw", "rebalanced"]),
-    ("Adding BM3D denoising after training", ["l1_bm3d", "ssim_bm3d", "uw_bm3d"]),
-    ("Changing the first-stage decomposition instead", ["ssim_decomuw", "ssim_lowsmooth"]),
+    ("Enhance-Net loss — shared frozen Decom-Net, same seed, same 100-epoch budget",
+     ["l1", "ssim", "uw", "rebalanced"]),
+    ("+ BM3D on reflectance, inference-time only (sigma tuned by LPIPS on train pairs)",
+     ["l1_bm3d", "ssim_bm3d", "uw_bm3d"]),
+    ("Decom-Net variants — different frozen stage 1, NOT comparable to the block above",
+     ["ssim_decomuw", "ssim_lowsmooth"]),
 ]
 
 
@@ -232,8 +239,10 @@ def format_headline(summaries) -> str:
     best = _best_within(summaries, [t for t in present if t != "input"], columns)
 
     lines = ["", LEGEND, "", "## The controlled comparison", "",
-             "Every row below is the same network trained the same way on the same "
-             "data, changing only the loss. The first row is no network at all.", "",
+             "Identical architecture, frozen Decom-Net, seed, data order and "
+             "schedule across all four trained rows; only the Enhance-Net "
+             "reconstruction loss differs. Data-order equivalence is asserted by "
+             "`scripts/check_determinism.py`, not assumed.", "",
              "| Model | " + " | ".join(f"{b} {METRICS[m][0]}" for b, m in columns) + " |",
              "|" + "|".join([":---"] + [":---:"] * len(columns)) + "|"]
     for tag in present:
@@ -241,15 +250,19 @@ def format_headline(summaries) -> str:
 
     lines += [
         "",
-        "**What this shows.** Adding SSIM to the loss is the single biggest "
-        "improvement. Learning the loss weights adds a little more — but simply "
-        "*fixing* the weights at the values it learned does as well or better, "
-        "so the learning machinery is not what earned the gain.",
+        "**Reading.** The SSIM term is the dominant effect: +0.13 SSIM and "
+        "−0.18 LPIPS at only +0.42 dB PSNR — it redistributes residual error "
+        "rather than reducing it. Homoscedastic uncertainty weighting "
+        "(Kendall et al. 2018) converges to `1.00 : 0.65 : 0.70` and improves "
+        "further, but the fixed-weight control at those same ratios matches or "
+        "beats it on 5 of 6 metrics. The gain is attributable to the weights, "
+        "not to learning them.",
         "",
-        "Note the first two rows together: the paper's own L1 baseline scores "
-        "**worse than doing nothing** on LIME and DICM. It brightens the image "
-        "and amplifies the sensor noise while doing it, and a metric that judges "
-        "naturalness punishes that more than it rewards the extra visibility.",
+        "The identity row is load-bearing: the paper's L1 baseline is "
+        "**NIQE-worse than the unenhanced input** on LIME (5.03 vs 4.35) and "
+        "DICM (4.12 vs 3.86). `R = S / I` amplifies sensor noise by ~`1/I` in "
+        "dark regions, and NSS-based no-reference scoring penalises that more "
+        "than it rewards the added visibility.",
     ]
     return "\n".join(lines)
 
@@ -285,11 +298,12 @@ def format_bm3d_effect(summaries) -> str:
         "",
         "### Does the paper's BM3D denoising help?",
         "",
-        "Each row is the SAME trained model scored twice — denoising off, then on. "
-        "Left column: measured against the correct answer. Right column: measured "
-        "on naturalness alone, averaged over LIME/MEF/DICM.",
+        "Same checkpoint scored twice, denoiser off then on. BM3D is applied to "
+        "reflectance before recombination with I-hat, with illumination-relative "
+        "strength `w = (1 - I)^gamma`. The right column averages NIQE over "
+        "LIME/MEF/DICM; the sign is the same on all three individually.",
         "",
-        "| Model | vs. ground truth (LPIPS ↓) | | on its own (NIQE ↓) | |",
+        "| Model | full-reference (LPIPS ↓) | Δ | no-reference (NIQE ↓) | Δ |",
         "|:---|:---:|:---:|:---:|:---:|",
     ]
     for base, denoised in usable:
@@ -306,13 +320,16 @@ def format_bm3d_effect(summaries) -> str:
 
     lines += [
         "",
-        "**What this shows.** Every model moves the same way: denoising helps "
-        "when there is a correct answer to compare against, and *hurts* when "
-        "there is not. The denoising strength was chosen by LPIPS — the left "
-        "column — so the left column is the thing it was tuned to win and the "
-        "right column is not. Picking a setting on one kind of metric and "
-        "reporting it on another is a design flaw, and this is what it looks "
-        "like.",
+        "**Reading.** The sign flips between metric families on every row, "
+        "without exception. Sigma was selected by LPIPS on training pairs, so the "
+        "left column is the tuning objective and the right column is not: LPIPS "
+        "rewards smoothing toward a clean reference, while NIQE's natural-scene-"
+        "statistics model penalises the resulting loss of high-frequency detail "
+        "as much as it penalises noise. Selecting on one metric family and "
+        "reporting on another is a design error, and these rows are what it "
+        "looks like. Tuning sigma *by* NIQE — feasible without ground truth — "
+        "would separate 'denoising does not transfer' from 'LPIPS chose the "
+        "wrong sigma'; that run has not been done.",
     ]
     return "\n".join(lines)
 
@@ -448,9 +465,9 @@ def main():
         "",
         "## Full table",
         "",
-        "Every model, every metric. **Bold marks the best value within a group "
-        "only** — models in different groups changed different things, so "
-        "comparing across groups is not meaningful.",
+        "Every configuration, every metric. **Bold is scoped within a block** — "
+        "blocks vary different factors, so cross-block bolding would be "
+        "arithmetic rather than comparison.",
         "",
         format_table(summaries, columns, GROUPS),
         format_margins(summaries, columns, args.margin),
