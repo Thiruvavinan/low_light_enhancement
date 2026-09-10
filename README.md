@@ -17,9 +17,10 @@ evaluation the original paper reports only as side-by-side pictures.
 Two secondary results. Learning the loss weights by homoscedastic uncertainty
 converges to `1.00 : 0.65 : 0.70` and beats the paper — but a *fixed* config at
 those same ratios matches or beats the learned one, so the method found the
-weights rather than needing to learn them. And the paper's own BM3D step
-**improves full-reference scores while making no-reference naturalness worse**,
-on every model without exception.
+weights rather than needing to learn them. And the paper's BM3D step improves
+NIQE in-distribution, including on held-out images, yet **a denoising strength
+fitted to LOL does not transfer to other datasets** — a domain-shift failure,
+not overfitting.
 
 ---
 
@@ -152,10 +153,28 @@ That is an independent validation of Wei et al.'s hand-set constants, and a
 negative result for the method — a global scale is absorbed by the learning
 rate.
 
-**BM3D helps in-distribution and hurts out-of-distribution.** This was the
-opposite of the prediction. Denoising reflectance nearly doubles the L1
-configuration's LOL SSIM (0.595 → 0.773), then degrades NIQE on all three
-cross-datasets — to *worse than doing nothing*. The mechanism is a metric conflict: σ was tuned by
+**BM3D helps in-distribution but does not transfer.** Denoising reflectance
+nearly doubles the L1 configuration's LOL SSIM (0.595 → 0.773), then degrades
+NIQE on all three cross-datasets — to *worse than doing nothing*.
+
+Two objectives were at play, and separating them matters. The `_bm3d` rows
+above tune sigma on **LPIPS**, which rewards smoothing toward a clean
+reference; re-tuning on **NIQE** (no ground truth needed, so still leak-free
+on training images) picks sigma=0.04 rather than 0.16 — 4x lower — and
+recovers most of the harm:
+
+| L1 + BM3D | cross-dataset NIQE | vs. no denoising |
+|:---|:---:|:---:|
+| sigma = 0.16, tuned on LPIPS | 5.03 | +0.36 |
+| sigma = 0.04, tuned on NIQE | 4.78 | +0.10 |
+| *(no denoising)* | *4.67* | *—* |
+
+So **71% of the apparent harm was the tuning objective, not the denoiser.**
+But the residual is still positive, and the diagnosis is specific: at
+sigma=0.04 denoising improves NIQE by −0.41 on the tuning images and −0.42 on
+held-out LOL — it transfers perfectly to unseen images of the *same* kind, and
+fails only when the dataset changes. That is domain shift in the noise
+statistics, not overfitting to the sweep. The mechanism is a metric conflict: σ was tuned by
 LPIPS, which rewards aggressive smoothing when a clean reference exists, while
 NIQE scores naturalness by natural-scene statistics and penalises missing
 high-frequency detail as much as it penalises noise. Selecting a
@@ -172,6 +191,12 @@ so the comparison between them holds. And this L1 baseline *beats* the
 authors' released checkpoint (18.26 vs 16.79 PSNR), most likely from training
 at 96×96 patches rather than the released code's 48×48 default, so the margins
 sit on top of a strong baseline.
+
+**The obvious next step.** A single σ is fitted on LOL and applied to every
+benchmark, and the diagnosis above says that is precisely what fails — it
+transfers to unseen LOL images and not to a different dataset. Estimating σ
+per dataset, or per image from the input's own noise level, is the experiment
+this points at. Not tried.
 
 ---
 
