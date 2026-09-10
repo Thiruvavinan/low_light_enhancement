@@ -131,72 +131,56 @@ every configuration sees identical training data.
 
 ## Probable explanation
 
-**The gain is structural, not per-pixel — and mostly it is noise.** The L1 and
-SSIM configurations end at almost identical training L1 (0.1116 vs 0.1114) and
-PSNR moves only +0.42 dB, while SSIM moves +0.127 and LPIPS −0.177. The SSIM
-term did not fit pixels better; it changed how the residual error is
-*distributed*. The factorial above pins down what that redistribution mostly
-is: noise. A generic denoiser reproduces ~85% of it on LOL. What it does *not*
-reproduce is the cross-dataset gain.
+**The gain is structural, not per-pixel — and mostly it is noise.** L1 and
+L1+SSIM end at almost identical training L1 (0.1116 vs 0.1114) and PSNR moves
+only +0.42 dB, while SSIM moves +0.127 and LPIPS −0.177. The SSIM term did not
+fit pixels better; it changed how the residual error is *distributed*. The
+factorial pins down what that redistribution mostly is: noise. A generic
+denoiser reproduces ~85% of it on LOL, and does not reproduce the
+cross-dataset gain at all.
 
-**Learned weights discovered something real, then proved redundant.**
-Homoscedastic uncertainty weighting (Kendall et al. 2018) converged to
-`w_l1 = 4.28, w_ssim = 2.77`, i.e. `1.00 : 0.65 : 0.70` after normalising.
-Two readable claims: SSIM wants *less* weight than L1, and smoothness wants
-**0.70, not the reference implementation's 3.0**. But typing those three
-numbers as fixed weights matches or beats the learned configuration on 5 of 6 metrics.
-The method's contribution was finding the weights, not applying them.
+**Learned weights found something real, then proved redundant.** Homoscedastic
+uncertainty weighting converged to `1.00 : 0.65 : 0.70` — SSIM wants *less*
+weight than L1, and smoothness wants 0.70 rather than the reference
+implementation's 3.0. But those three numbers as *fixed* weights match or beat
+the learned configuration on 5 of 6 metrics, so the method's contribution was
+finding the weights, not learning them.
 
-On Decom-Net it found nothing at all: with all five terms learned, every weight
+On Decom-Net it found nothing: with all five terms learned, every weight
 scaled **13× uniformly** and the ratios stayed within **3%** of the paper's.
-That is an independent validation of Wei et al.'s hand-set constants, and a
-negative result for the method — a global scale is absorbed by the learning
-rate.
+An independent validation of Wei et al.'s constants, and a negative result for
+the method — a global scale is absorbed by the learning rate.
 
-**BM3D helps in-distribution but does not transfer.** Denoising reflectance
-nearly doubles the L1 configuration's LOL SSIM (0.595 → 0.773), then degrades
-NIQE on all three cross-datasets — to *worse than doing nothing*.
-
-Two objectives were at play, and separating them matters. The `_bm3d` rows
-above tune sigma on **LPIPS**, which rewards smoothing toward a clean
-reference; re-tuning on **NIQE** (no ground truth needed, so still leak-free
-on training images) picks sigma=0.04 rather than 0.16 — 4x lower — and
-recovers most of the harm:
+**BM3D transfers to unseen images, but not to unseen datasets.** Denoising
+nearly doubles the L1 configuration's LOL SSIM (0.595 → 0.773), yet degrades
+cross-dataset NIQE. Two things were tangled there, and separating them changes
+the conclusion. The `_bm3d` rows tune σ on **LPIPS**, which rewards smoothing
+toward a clean reference; re-tuning on **NIQE** (no ground truth needed, so
+still leak-free on training images) picks σ=0.04 rather than 0.16:
 
 | L1 + BM3D | cross-dataset NIQE | vs. no denoising |
 |:---|:---:|:---:|
-| sigma = 0.16, tuned on LPIPS | 5.03 | +0.36 |
-| sigma = 0.04, tuned on NIQE | 4.78 | +0.10 |
-| *(no denoising)* | *4.67* | *—* |
+| σ = 0.16, tuned on LPIPS | 5.03 | +0.36 |
+| σ = 0.04, tuned on NIQE | 4.78 | +0.10 |
+| *no denoising* | *4.67* | *—* |
 
-So **71% of the apparent harm was the tuning objective, not the denoiser.**
-But the residual is still positive, and the diagnosis is specific: at
-sigma=0.04 denoising improves NIQE by −0.41 on the tuning images and −0.42 on
-held-out LOL — it transfers perfectly to unseen images of the *same* kind, and
-fails only when the dataset changes. That is domain shift in the noise
-statistics, not overfitting to the sweep. The mechanism is a metric conflict: σ was tuned by
-LPIPS, which rewards aggressive smoothing when a clean reference exists, while
-NIQE scores naturalness by natural-scene statistics and penalises missing
-high-frequency detail as much as it penalises noise. Selecting a
-hyperparameter on one metric family and reporting it on another is a design
-error, and it is inherited by every BM3D row here. Tuning σ *by NIQE* — which
-needs no ground truth — would settle whether denoising can help out of
-distribution at all. Not yet run.
+**71% of the apparent harm was the tuning objective, not the denoiser** — my
+error, not the method's. The residual is still positive, and the diagnosis is
+specific: at σ=0.04 denoising improves NIQE by −0.41 on the tuning images and
+−0.42 on held-out LOL. It transfers perfectly to unseen images of the *same*
+kind and fails only when the dataset changes, so this is domain shift in the
+noise statistics rather than overfitting to the sweep. That points at a fix
+this project did not try: estimate σ per dataset, or per image from the
+input's own noise, instead of fitting one value on LOL.
 
-**What not to read into it.** One seed per configuration, no error bars. The BM3D σ was
-tuned on training images the network had already seen. Cross-dataset counts
-(LIME 10 / MEF 79 / DICM 44) differ from the paper's text, so absolute NIQE is
-not comparable to papers using other bundles — every configuration sees identical images,
-so the comparison between them holds. And this L1 baseline *beats* the
-authors' released checkpoint (18.26 vs 16.79 PSNR), most likely from training
-at 96×96 patches rather than the released code's 48×48 default, so the margins
-sit on top of a strong baseline.
-
-**The obvious next step.** A single σ is fitted on LOL and applied to every
-benchmark, and the diagnosis above says that is precisely what fails — it
-transfers to unseen LOL images and not to a different dataset. Estimating σ
-per dataset, or per image from the input's own noise level, is the experiment
-this points at. Not tried.
+**What not to read into it.** One seed per configuration, no error bars. BM3D
+σ was tuned on training images the network had already seen. Cross-dataset
+counts (LIME 10 / MEF 79 / DICM 44) differ from the paper's text, so absolute
+NIQE is not comparable to papers using other bundles — though every
+configuration sees identical images, so the comparison between them holds. And
+this L1 baseline *beats* the authors' released checkpoint (18.26 vs 16.79
+PSNR), most likely from training at 96×96 patches rather than the released
+code's 48×48 default, so the margins sit on top of a strong baseline.
 
 ---
 

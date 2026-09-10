@@ -36,7 +36,8 @@ python scripts/plot_history.py --run runs/enhance_l1 --run runs/enhance_ssim --m
 | [`plot_history.py`](plot_history.py) | loss curves and per-module gradient norms |
 | [`convert_tf_weights.py`](convert_tf_weights.py) | port the authors' TF weights into this implementation |
 | [`verify_port.py`](verify_port.py) | **check the port against the original TF graph** |
-| [`check_determinism.py`](check_determinism.py) | **check that both arms see identical training data** |
+| [`check_determinism.py`](check_determinism.py) | **check that every configuration sees identical training data** |
+| [`verify_reported.py`](verify_reported.py) | **check that every published number is backed by a `summary.json`** |
 
 ## `verify_port.py` is the one to notice
 
@@ -100,6 +101,27 @@ It selects on LPIPS by default, and that choice turned out to matter: the
 resulting sigma improves full-reference metrics and *degrades* no-reference
 NIQE on every arm. Selecting a hyperparameter on one metric family and
 reporting it on another is a design error; see the root README.
+
+## `verify_reported.py` catches stale numbers
+
+Numbers in prose go stale silently. A model gets re-evaluated, the table is
+regenerated, and a sentence three sections away still quotes the old value —
+nothing errors, nothing looks wrong, and the document is now wrong.
+
+```bash
+python scripts/verify_reported.py     # exit 1 on any problem
+```
+
+It checks that every evaluated model appears in the table, that every value in
+every `summary.json` appears there, that every metric-shaped number in the
+README is either a real measurement or reconstructible from one (the
+cross-dataset means and the spread figures are recomputed, so the arithmetic
+is verified too), and that no relative link is broken.
+
+It has already caught two real problems: rows added without updating the
+layout lists, which rendered under a catch-all heading with misleading
+bolding; and it fails correctly on an injected fake value, which is how the
+check itself was validated.
 
 ## Figures come from saved predictions, not fresh inference
 
