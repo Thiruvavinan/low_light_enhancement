@@ -60,13 +60,44 @@ METRICS = {
 }
 BENCHMARK_ORDER = ["LOL", "LIME", "MEF", "DICM"]
 
+# Human-readable row labels. The --tag names are short because they are typed
+# on a command line; they are not self-explanatory to a reader, and a table
+# whose rows say `uw` and `ssim_decomuw` cannot be understood without the
+# conversation that produced it. The tag is still printed alongside so a row
+# can be traced back to the command that made it.
+LABELS = {
+    "input":          "No enhancement (the input image)",
+    "tf_reference":   "Authors' released weights",
+    "l1":             "Paper baseline — L1 loss",
+    "ssim":           "+ SSIM loss term",
+    "uw":             "+ learned loss weights",
+    "rebalanced":     "+ fixed rebalanced weights",
+    "l1_bm3d":        "Paper baseline + BM3D denoising",
+    "ssim_bm3d":      "+ SSIM + BM3D denoising",
+    "uw_bm3d":        "+ learned weights + BM3D denoising",
+    "ssim_decomuw":   "+ SSIM, on the learned decomposition",
+    "ssim_lowsmooth": "+ SSIM, on the low-smoothness decomposition",
+}
+
+# Shown once, above the first table, so the columns mean something on their own.
+LEGEND = """**How to read this.** LOL has matching normal-light photographs, so those
+columns compare each output against a known correct answer:
+**PSNR** and **SSIM** (higher is better) and **LPIPS** (lower is better, and
+the closest of the three to human judgement).
+
+LIME, MEF and DICM have **no** correct answer to compare against — they are
+different datasets the models never saw. **NIQE** (lower is better) scores how
+*natural* an image looks on its own, with no reference. That is what makes the
+first row matter: an enhancement can score worse than the untouched input.
+"""
+
 # Layout only -- see the module docstring. Any tag not listed still prints,
 # under "Other", so this cannot silently hide an arm.
 GROUPS = [
     ("Reference points", ["input", "tf_reference"]),
-    ("Loss comparison (shared Decom-Net)", ["l1", "ssim", "uw", "rebalanced"]),
-    ("+ BM3D denoising (sigma tuned by LPIPS)", ["l1_bm3d", "ssim_bm3d", "uw_bm3d"]),
-    ("Stage-1 axis (different decomposition)", ["ssim_decomuw", "ssim_lowsmooth"]),
+    ("Changing the loss (everything else held fixed)", ["l1", "ssim", "uw", "rebalanced"]),
+    ("Adding BM3D denoising after training", ["l1_bm3d", "ssim_bm3d", "uw_bm3d"]),
+    ("Changing the first-stage decomposition instead", ["ssim_decomuw", "ssim_lowsmooth"]),
 ]
 
 
@@ -100,7 +131,8 @@ def build_columns(summaries):
 
 
 def _row(tag, summary, columns, best, mark_best) -> str:
-    row = [f"`{tag}`"]
+    label = LABELS.get(tag)
+    row = [f"{label} <sub>`{tag}`</sub>" if label else f"`{tag}`"]
     for benchmark, metric in columns:
         value = summary.get("benchmarks", {}).get(benchmark, {}).get(metric)
         if value is None:
@@ -199,14 +231,26 @@ def format_headline(summaries) -> str:
                if any(c[1] in summaries[t].get("benchmarks", {}).get(c[0], {}) for t in present)]
     best = _best_within(summaries, [t for t in present if t != "input"], columns)
 
-    lines = ["", "## The controlled comparison", "",
-             "Same frozen Decom-Net, same seed, same 100-epoch budget. Only the "
-             "Enhance-Net loss differs. `input` is the identity function scored "
-             "through the same pipeline, and is excluded from the bolding.", "",
+    lines = ["", LEGEND, "", "## The controlled comparison", "",
+             "Every row below is the same network trained the same way on the same "
+             "data, changing only the loss. The first row is no network at all.", "",
              "| Model | " + " | ".join(f"{b} {METRICS[m][0]}" for b, m in columns) + " |",
              "|" + "|".join([":---"] + [":---:"] * len(columns)) + "|"]
     for tag in present:
         lines.append(_row(tag, summaries[tag], columns, best, tag != "input"))
+
+    lines += [
+        "",
+        "**What this shows.** Adding SSIM to the loss is the single biggest "
+        "improvement. Learning the loss weights adds a little more — but simply "
+        "*fixing* the weights at the values it learned does as well or better, "
+        "so the learning machinery is not what earned the gain.",
+        "",
+        "Note the first two rows together: the paper's own L1 baseline scores "
+        "**worse than doing nothing** on LIME and DICM. It brightens the image "
+        "and amplifies the sensor noise while doing it, and a metric that judges "
+        "naturalness punishes that more than it rewards the extra visibility.",
+    ]
     return "\n".join(lines)
 
 
@@ -239,11 +283,13 @@ def format_bm3d_effect(summaries) -> str:
 
     lines = [
         "",
-        "### Effect of BM3D denoising (paired against each arm's own baseline)",
+        "### Does the paper's BM3D denoising help?",
         "",
-        "In-distribution vs. out-of-distribution, same checkpoint, denoising on/off.",
+        "Each row is the SAME trained model scored twice — denoising off, then on. "
+        "Left column: measured against the correct answer. Right column: measured "
+        "on naturalness alone, averaged over LIME/MEF/DICM.",
         "",
-        "| Arm | LOL LPIPS ↓ | Δ | cross-dataset NIQE ↓ | Δ |",
+        "| Model | vs. ground truth (LPIPS ↓) | | on its own (NIQE ↓) | |",
         "|:---|:---:|:---:|:---:|:---:|",
     ]
     for base, denoised in usable:
@@ -253,17 +299,20 @@ def format_bm3d_effect(summaries) -> str:
         if nq_a is None or nq_b is None:
             continue
         lines.append(
-            f"| `{base}` → `{denoised}` "
+            f"| {LABELS.get(base, base)} "
             f"| {lp_a:.4f} → {lp_b:.4f} | {lp_b - lp_a:+.4f} {'✓' if lp_b < lp_a else '✗'} "
             f"| {nq_a:.2f} → {nq_b:.2f} | {nq_b - nq_a:+.2f} {'✓' if nq_b < nq_a else '✗'} |"
         )
 
     lines += [
         "",
-        "Every arm moves the same way: denoising helps the metric that has a "
-        "clean reference to compare against, and hurts the one that judges "
-        "naturalness on its own. `sigma` was selected by LPIPS, so the left "
-        "column is the objective it was tuned for and the right column is not.",
+        "**What this shows.** Every model moves the same way: denoising helps "
+        "when there is a correct answer to compare against, and *hurts* when "
+        "there is not. The denoising strength was chosen by LPIPS — the left "
+        "column — so the left column is the thing it was tuned to win and the "
+        "right column is not. Picking a setting on one kind of metric and "
+        "reporting it on another is a design flaw, and this is what it looks "
+        "like.",
     ]
     return "\n".join(lines)
 
@@ -313,19 +362,38 @@ def format_margins(summaries, columns, margin_tags=None) -> str:
 
 
 def format_provenance(summaries) -> str:
-    lines = ["", "### Protocol", "",
-             "| Arm | Checkpoint | Images | No-reference metric | LPIPS backbone | Padding |",
-             "|:---|:---|:---|:---:|:---:|:---:|"]
+    """
+    Protocol block. Only fields that DIFFER across arms get a row each; the
+    ones that are identical everywhere are stated once. Eleven rows repeating
+    the same image counts and metric backends is noise that hides the one
+    column a reader might actually check.
+    """
+    def uniform(key, default="?"):
+        vals = {str(s.get(key, default)) for s in summaries.values()}
+        return vals.pop() if len(vals) == 1 else None
+
+    lines = ["", "### Protocol", ""]
+
+    counts = {", ".join(f"{b}:{s['benchmarks'][b]['n_images']}"
+                        for b in BENCHMARK_ORDER if b in s.get("benchmarks", {}))
+              for s in summaries.values()}
+    shared = []
+    if len(counts) == 1:
+        shared.append(f"images scored: {counts.pop()}")
+    for key, name in [("no_reference_backend", "no-reference metric"),
+                      ("lpips_net", "LPIPS backbone"), ("padding_mode", "padding")]:
+        v = uniform(key)
+        if v:
+            shared.append(f"{name}: {v}")
+    if shared:
+        lines += ["Identical for every row — " + "; ".join(shared) + ".", ""]
+
+    lines += ["| Row | Checkpoint | Denoising |", "|:---|:---|:---|"]
     for tag, s in summaries.items():
-        counts = ", ".join(
-            f"{b}:{s['benchmarks'][b]['n_images']}"
-            for b in BENCHMARK_ORDER if b in s.get("benchmarks", {})
-        )
-        lines.append(
-            f"| `{tag}` | `{s.get('checkpoint','?')}` | {counts} | "
-            f"{s.get('no_reference_backend','?')} | {s.get('lpips_net','?')} | "
-            f"{s.get('padding_mode','?')} |"
-        )
+        d = s.get("denoise", "none")
+        d = "—" if d in ("none", None) else f"BM3D σ={s.get('denoise_sigma')} γ={s.get('denoise_gamma')}"
+        label = LABELS.get(tag, tag)
+        lines.append(f"| {label} <sub>`{tag}`</sub> | `{s.get('checkpoint','?')}` | {d} |")
 
     backends = {s.get("no_reference_backend") for s in summaries.values()}
     if len(backends) > 1:
@@ -372,16 +440,17 @@ def main():
     document = "\n".join([
         "# Results",
         "",
-        "Generated by `scripts/results_table.py`. The views below are reading "
-        "orders over one dataset; the complete table at the end holds every arm "
-        "and every metric, with nothing dropped.",
+        "Generated by `scripts/results_table.py`. The sections below are reading "
+        "orders over one set of numbers. The full table at the end holds every "
+        "model and every metric, with nothing left out.",
         format_headline(summaries),
         format_bm3d_effect(summaries),
         "",
         "## Full table",
         "",
-        "Every arm, every metric. Bolding is scoped within each group -- arms in "
-        "different groups are not comparable to each other.",
+        "Every model, every metric. **Bold marks the best value within a group "
+        "only** — models in different groups changed different things, so "
+        "comparing across groups is not meaningful.",
         "",
         format_table(summaries, columns, GROUPS),
         format_margins(summaries, columns, args.margin),
