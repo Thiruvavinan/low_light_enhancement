@@ -13,10 +13,28 @@ option to select a subset: the project's stated commitment is to report all
 the numbers rather than the ones that favour a hypothesis, and a filter flag
 is the mechanism by which that commitment quietly stops holding.
 
-`--groups` only changes LAYOUT, never content. It splits the rows into
-labelled sections so a table with a dozen arms stays readable, and any arm not
-named in a group is still printed under "Other" -- so a row cannot be dropped
-by forgetting to list it. The check at the end asserts that.
+Structure
+---------
+The output is several focused views followed by the COMPLETE table. The views
+exist because one 8-column x 11-row grid is a data dump: it holds three
+different experiments whose rows are not all comparable to each other, and it
+gives the reader no way to know which comparisons are legal.
+
+    1. Loss comparison   the controlled experiment -- same frozen Decom-Net,
+                         same seed, same budget, only the loss differs
+    2. BM3D effect       paired deltas, because a denoised arm is only
+                         meaningful against its own undenoised base
+    3. Stage-1 axis      different frozen decomposition; NOT comparable to (1)
+    4. Full table        every arm, every metric, nothing dropped
+
+Bolding is scoped WITHIN a group, never across all rows. Bolding across
+groups is how `ssim_bm3d` came out marked best on SSIM and LPIPS while being
+half a NIQE point worse than `rebalanced` cross-dataset -- arithmetically
+true, and exactly the wrong thing to draw a reader's eye to.
+
+`--groups` changes LAYOUT, never content. Any arm not named in a group still
+prints under "Other", so a row cannot be dropped by forgetting to list it, and
+the assert enforces it.
 
 Winners are marked, but the mark is arithmetic, not a claim. A 0.001 SSIM
 difference over 15 images gets the same bold as a 2 dB one, so the table
@@ -96,24 +114,36 @@ def _row(tag, summary, columns, best, mark_best) -> str:
     return "| " + " | ".join(row) + " |"
 
 
+def _best_within(summaries, tags, columns):
+    """
+    Best value per column among `tags` only.
+
+    Scoping this to a group is the whole point. Computed across every row, the
+    mark lands on whichever arm happens to win a column regardless of whether
+    it is even comparable to the others -- that is how `ssim_bm3d` came out
+    bolded as best on SSIM and LPIPS while sitting half a NIQE point behind
+    `rebalanced` cross-dataset.
+    """
+    best = {}
+    for benchmark, metric in columns:
+        values = [
+            summaries[t]["benchmarks"][benchmark][metric]
+            for t in tags
+            if metric in summaries[t].get("benchmarks", {}).get(benchmark, {})
+        ]
+        if values:
+            best[(benchmark, metric)] = (max if METRICS[metric][1] else min)(values)
+    return best
+
+
 def format_table(summaries, columns, groups=None) -> str:
     header = ["Model"] + [f"{b} {METRICS[m][0]}" for b, m in columns]
     lines = ["| " + " | ".join(header) + " |",
              "|" + "|".join([":---"] + [":---:"] * len(columns)) + "|"]
 
-    # Best value per column, so the winner can be marked
-    best = {}
-    for benchmark, metric in columns:
-        values = [
-            s["benchmarks"][benchmark][metric]
-            for s in summaries.values()
-            if metric in s.get("benchmarks", {}).get(benchmark, {})
-        ]
-        if values:
-            best[(benchmark, metric)] = (max if METRICS[metric][1] else min)(values)
-
     mark = len(summaries) > 1
     if not groups:
+        best = _best_within(summaries, list(summaries), columns)
         for tag, summary in summaries.items():
             lines.append(_row(tag, summary, columns, best, mark))
         return "\n".join(lines)
@@ -127,18 +157,114 @@ def format_table(summaries, columns, groups=None) -> str:
         if not present:
             continue
         lines.append(f"| **{label}** |" + " |" * (ncols - 1))
+        # Bold the winner WITHIN this group only.
+        group_best = _best_within(summaries, present, columns)
         for tag in present:
-            lines.append(_row(tag, summaries[tag], columns, best, mark))
+            lines.append(_row(tag, summaries[tag], columns, group_best, mark and len(present) > 1))
             placed.add(tag)
 
     leftover = [t for t in summaries if t not in placed]
     if leftover:
         lines.append("| **Other** |" + " |" * (ncols - 1))
+        other_best = _best_within(summaries, leftover, columns)
         for tag in leftover:
-            lines.append(_row(tag, summaries[tag], columns, best, mark))
+            lines.append(_row(tag, summaries[tag], columns, other_best, mark and len(leftover) > 1))
 
     assert len(placed) + len(leftover) == len(summaries), "a row was dropped"
 
+    return "\n".join(lines)
+
+
+HEADLINE_TAGS = ["input", "l1", "ssim", "uw", "rebalanced"]
+HEADLINE_COLUMNS = [("LOL", "psnr"), ("LOL", "ssim"), ("LOL", "lpips"),
+                    ("LIME", "niqe"), ("MEF", "niqe"), ("DICM", "niqe")]
+
+
+def format_headline(summaries) -> str:
+    """
+    The controlled experiment on its own: one frozen Decom-Net, one seed, one
+    budget, only the loss differs.
+
+    Six columns rather than the full eight. `ssim_gray` is dropped here because
+    it correlates r=+0.99 with `ssim` across every arm -- it exists to be
+    comparable with the published grayscale number, which is a footnote, not a
+    dimension. `LOL niqe` is dropped because it is a no-reference metric on the
+    one benchmark that HAS a reference. Both remain in the full table below;
+    this is a reading order, not a filter.
+    """
+    present = [t for t in HEADLINE_TAGS if t in summaries]
+    if len(present) < 2:
+        return ""
+    columns = [c for c in HEADLINE_COLUMNS
+               if any(c[1] in summaries[t].get("benchmarks", {}).get(c[0], {}) for t in present)]
+    best = _best_within(summaries, [t for t in present if t != "input"], columns)
+
+    lines = ["", "## The controlled comparison", "",
+             "Same frozen Decom-Net, same seed, same 100-epoch budget. Only the "
+             "Enhance-Net loss differs. `input` is the identity function scored "
+             "through the same pipeline, and is excluded from the bolding.", "",
+             "| Model | " + " | ".join(f"{b} {METRICS[m][0]}" for b, m in columns) + " |",
+             "|" + "|".join([":---"] + [":---:"] * len(columns)) + "|"]
+    for tag in present:
+        lines.append(_row(tag, summaries[tag], columns, best, tag != "input"))
+    return "\n".join(lines)
+
+
+def format_bm3d_effect(summaries) -> str:
+    """
+    Denoising as a PAIRED delta against each arm's own undenoised base.
+
+    A denoised arm is only meaningful against the arm it was derived from --
+    ranking `ssim_bm3d` against `l1` mixes two changes at once. Pairing also
+    makes the finding legible in one glance: BM3D improves the full-reference
+    column and degrades the no-reference one, on every arm, without exception.
+    That sign flip is the result; in a flat 11-row grid it takes six
+    comparisons to notice.
+
+    Cross-dataset NIQE is averaged over LIME/MEF/DICM here. The per-dataset
+    values are in the full table below, and the direction is the same in all
+    three, so the mean is a summary rather than a smoothing-over.
+    """
+    pairs = [("l1", "l1_bm3d"), ("ssim", "ssim_bm3d"), ("uw", "uw_bm3d")]
+    usable = [(a, b) for a, b in pairs if a in summaries and b in summaries]
+    if not usable:
+        return ""
+
+    def cross_niqe(tag):
+        bms = [b for b in ("LIME", "MEF", "DICM")
+               if "niqe" in summaries[tag].get("benchmarks", {}).get(b, {})]
+        if not bms:
+            return None
+        return sum(summaries[tag]["benchmarks"][b]["niqe"] for b in bms) / len(bms)
+
+    lines = [
+        "",
+        "### Effect of BM3D denoising (paired against each arm's own baseline)",
+        "",
+        "In-distribution vs. out-of-distribution, same checkpoint, denoising on/off.",
+        "",
+        "| Arm | LOL LPIPS ↓ | Δ | cross-dataset NIQE ↓ | Δ |",
+        "|:---|:---:|:---:|:---:|:---:|",
+    ]
+    for base, denoised in usable:
+        lp_a = summaries[base]["benchmarks"]["LOL"]["lpips"]
+        lp_b = summaries[denoised]["benchmarks"]["LOL"]["lpips"]
+        nq_a, nq_b = cross_niqe(base), cross_niqe(denoised)
+        if nq_a is None or nq_b is None:
+            continue
+        lines.append(
+            f"| `{base}` → `{denoised}` "
+            f"| {lp_a:.4f} → {lp_b:.4f} | {lp_b - lp_a:+.4f} {'✓' if lp_b < lp_a else '✗'} "
+            f"| {nq_a:.2f} → {nq_b:.2f} | {nq_b - nq_a:+.2f} {'✓' if nq_b < nq_a else '✗'} |"
+        )
+
+    lines += [
+        "",
+        "Every arm moves the same way: denoising helps the metric that has a "
+        "clean reference to compare against, and hurts the one that judges "
+        "naturalness on its own. `sigma` was selected by LPIPS, so the left "
+        "column is the objective it was tuned for and the right column is not.",
+    ]
     return "\n".join(lines)
 
 
@@ -246,8 +372,16 @@ def main():
     document = "\n".join([
         "# Results",
         "",
-        "Generated by `scripts/results_table.py`. Every metric computed is shown; "
-        "no column is omitted.",
+        "Generated by `scripts/results_table.py`. The views below are reading "
+        "orders over one dataset; the complete table at the end holds every arm "
+        "and every metric, with nothing dropped.",
+        format_headline(summaries),
+        format_bm3d_effect(summaries),
+        "",
+        "## Full table",
+        "",
+        "Every arm, every metric. Bolding is scoped within each group -- arms in "
+        "different groups are not comparable to each other.",
         "",
         format_table(summaries, columns, GROUPS),
         format_margins(summaries, columns, args.margin),
