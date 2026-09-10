@@ -41,7 +41,7 @@ import torch
 
 from data.datasets import build_dataset
 from evaluation.denoise import BM3DReflectanceDenoiser, illumination_blend
-from evaluation.metrics import LPIPSMetric, psnr, ssim
+from evaluation.metrics import LPIPSMetric, NoReferenceMetric, psnr, ssim
 from models import build_model
 
 DEFAULT_SIGMAS = [0.01, 0.02, 0.04, 0.08]
@@ -55,10 +55,12 @@ def main():
     parser.add_argument("--n", type=int, default=12, help="Training pairs to sweep over")
     parser.add_argument("--sigmas", type=float, nargs="*", default=DEFAULT_SIGMAS)
     parser.add_argument("--gammas", type=float, nargs="*", default=DEFAULT_GAMMAS)
-    parser.add_argument("--select-on", default="lpips", choices=["lpips", "ssim", "psnr"],
+    parser.add_argument("--select-on", default="lpips",
+                        choices=["lpips", "ssim", "psnr", "niqe"],
                         help="Metric used to pick the winner. LPIPS by default: the "
                              "denoiser targets perceived noise, and PSNR actively "
-                             "rewards over-smoothing.")
+                             "rewards over-smoothing. 'niqe' selects on the "
+                             "no-reference metric instead -- see the note below.")
     args = parser.parse_args()
 
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -77,6 +79,13 @@ def main():
     print(f"sigmas={args.sigmas}  gammas={args.gammas}  selecting on {args.select_on}\n")
 
     lpips_metric = LPIPSMetric(net="alex", device=device)
+    # NIQE needs no ground truth, so selecting on it is still leak-free here:
+    # the sweep runs on our485 (training split) and never touches an evaluation
+    # set. This is the point of offering it -- sigma chosen by LPIPS optimises
+    # closeness to a clean reference, which rewards smoothing; sigma chosen by
+    # NIQE optimises naturalness on the image's own statistics, which is what
+    # the cross-dataset benchmarks actually measure.
+    no_ref, no_ref_backend = NoReferenceMetric.best_available(device=device, preferred="niqe")
 
     # Cache the model outputs once -- they do not depend on sigma or gamma
     cached = []
@@ -89,7 +98,7 @@ def main():
 
     def score(pred, high):
         return {"psnr": psnr(pred, high), "ssim": ssim(pred, high),
-                "lpips": lpips_metric(pred, high)}
+                "lpips": lpips_metric(pred, high), no_ref_backend: no_ref(pred)}
 
     results = {}
 
@@ -107,9 +116,10 @@ def main():
             results[(sigma, gamma)] = {k: sum(x[k] for x in rows) / len(rows) for k in rows[0]}
         print(f"  sigma={sigma} done", flush=True)
 
-    print(f"\n{'sigma':>7} {'gamma':>7} {'PSNR':>8} {'SSIM':>8} {'LPIPS':>8}")
+    print(f"\n{'sigma':>7} {'gamma':>7} {'PSNR':>8} {'SSIM':>8} {'LPIPS':>8} {no_ref_backend.upper():>8}")
     for (sigma, gamma), m in results.items():
-        print(f"{str(sigma):>7} {str(gamma):>7} {m['psnr']:>8.3f} {m['ssim']:>8.4f} {m['lpips']:>8.4f}")
+        print(f"{str(sigma):>7} {str(gamma):>7} {m['psnr']:>8.3f} {m['ssim']:>8.4f} "
+              f"{m['lpips']:>8.4f} {m[no_ref_backend]:>8.4f}")
 
     tuned = {k: v for k, v in results.items() if k[0] != "off"}
     higher_better = args.select_on in ("psnr", "ssim")
@@ -119,6 +129,15 @@ def main():
     print(f"\nBest by {args.select_on}: sigma={best[0]}  gamma={best[1]}")
     print(f"  vs no denoising:  {args.select_on} {off[args.select_on]:.4f} -> "
           f"{tuned[best][args.select_on]:.4f}")
+
+    # Does ANY amount of denoising beat leaving it off, on the chosen metric?
+    # A null result here is a real answer, not a failure: it would say the
+    # metric never wants this post-process at any strength.
+    off_wins = (off[args.select_on] > tuned[best][args.select_on]) if higher_better \
+        else (off[args.select_on] < tuned[best][args.select_on])
+    if off_wins:
+        print(f"\n  NOTE: no denoising beats every setting swept, on {args.select_on}. "
+              f"The right choice for this objective is sigma=0.")
     print(f"\n  python scripts/evaluate.py --checkpoint {args.checkpoint} --tag <name> \\")
     print(f"      --denoise bm3d --denoise-sigma {best[0]} --denoise-gamma {best[1]}")
 
