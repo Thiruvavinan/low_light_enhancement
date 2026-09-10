@@ -40,7 +40,7 @@ Spread = best minus worst across the loss configurations. If a generic denoiser 
 
 Cross-dataset the spread does **not** collapse. So the SSIM term's in-distribution advantage is largely noise suppression, which BM3D also provides; its out-of-distribution advantage is something else, and it survives denoising. That is the column that justifies the loss change, and it is the one the original paper never reported.
 
-Caveat: sigma was tuned per model on LPIPS, so table B slightly favours whichever model that objective suited. The same tuning choice is why denoising worsens NIQE — see the paired view below.
+Caveat: sigma in table B is tuned per model on LPIPS, so it slightly favours whichever model that objective suited. Re-tuning on NIQE instead does not rescue the cross-dataset result — see the block below and the full table.
 
 
 ### Does the paper's BM3D denoising help?
@@ -52,8 +52,11 @@ Same checkpoint scored twice, denoiser off then on. BM3D is applied to reflectan
 | L1 recon — paper baseline | 0.4421 → 0.2323 | -0.2098 ✓ | 4.67 → 5.03 | +0.36 ✗ |
 | L1 + SSIM recon | 0.2651 → 0.1900 | -0.0751 ✓ | 3.68 → 3.86 | +0.19 ✗ |
 | L1 + SSIM, uncertainty-weighted | 0.2215 → 0.2059 | -0.0156 ✓ | 3.38 → 3.48 | +0.10 ✗ |
+| L1 + SSIM, fixed 1.00 : 0.65 : 0.70 | 0.2055 → 0.1947 | -0.0108 ✓ | 3.38 → 3.44 | +0.05 ✗ |
 
-**Reading.** The sign flips between metric families on every row, without exception. Sigma was selected by LPIPS on training pairs, so the left column is the tuning objective and the right column is not: LPIPS rewards smoothing toward a clean reference, while NIQE's natural-scene-statistics model penalises the resulting loss of high-frequency detail as much as it penalises noise. Selecting on one metric family and reporting on another is a design error, and these rows are what it looks like. Tuning sigma *by* NIQE — feasible without ground truth — would separate 'denoising does not transfer' from 'LPIPS chose the wrong sigma'; that run has not been done.
+**Reading.** The sign flips between metric families on every row, without exception. Sigma here was selected by LPIPS on training pairs, so the left column is the tuning objective and the right column is not: LPIPS rewards smoothing toward a clean reference, while NIQE's natural-scene-statistics model penalises the resulting loss of high-frequency detail as much as it penalises noise.
+
+That raised the obvious question — was the harm the denoiser or the tuning objective? Re-tuning sigma *by* NIQE (no ground truth needed, so still leak-free on training images) picks 0.04 for all four configurations, and the answer is the denoiser: every one of the eight denoised configurations in the full table is worse cross-dataset than not denoising, monotonically in sigma. The tuning objective changed how much harm, not whether there was harm.
 
 ## Full table
 

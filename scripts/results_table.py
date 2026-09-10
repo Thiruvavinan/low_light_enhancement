@@ -401,9 +401,10 @@ def _absorption(summaries, rows):
             "and it survives denoising. That is the column that justifies the loss "
             "change, and it is the one the original paper never reported.",
             "",
-            "Caveat: sigma was tuned per model on LPIPS, so table B slightly "
-            "favours whichever model that objective suited. The same tuning choice "
-            "is why denoising worsens NIQE \u2014 see the paired view below.", ""]
+            "Caveat: sigma in table B is tuned per model on LPIPS, so it slightly "
+            "favours whichever model that objective suited. Re-tuning on NIQE "
+            "instead does not rescue the cross-dataset result \u2014 see the block "
+            "below and the full table.", ""]
     return out
 
 
@@ -422,7 +423,9 @@ def format_bm3d_effect(summaries) -> str:
     values are in the full table below, and the direction is the same in all
     three, so the mean is a summary rather than a smoothing-over.
     """
-    pairs = [("l1", "l1_bm3d"), ("ssim", "ssim_bm3d"), ("uw", "uw_bm3d")]
+    # Derived from FACTORIAL rather than hardcoded: an earlier hardcoded list
+    # silently omitted `rebalanced` after that configuration was added.
+    pairs = [(a, b) for a, b, _ in FACTORIAL]
     usable = [(a, b) for a, b in pairs if a in summaries and b in summaries]
     if not usable:
         return ""
@@ -461,15 +464,19 @@ def format_bm3d_effect(summaries) -> str:
     lines += [
         "",
         "**Reading.** The sign flips between metric families on every row, "
-        "without exception. Sigma was selected by LPIPS on training pairs, so the "
-        "left column is the tuning objective and the right column is not: LPIPS "
-        "rewards smoothing toward a clean reference, while NIQE's natural-scene-"
-        "statistics model penalises the resulting loss of high-frequency detail "
-        "as much as it penalises noise. Selecting on one metric family and "
-        "reporting on another is a design error, and these rows are what it "
-        "looks like. Tuning sigma *by* NIQE — feasible without ground truth — "
-        "would separate 'denoising does not transfer' from 'LPIPS chose the "
-        "wrong sigma'; that run has not been done.",
+        "without exception. Sigma here was selected by LPIPS on training pairs, "
+        "so the left column is the tuning objective and the right column is not: "
+        "LPIPS rewards smoothing toward a clean reference, while NIQE's "
+        "natural-scene-statistics model penalises the resulting loss of "
+        "high-frequency detail as much as it penalises noise.",
+        "",
+        "That raised the obvious question — was the harm the denoiser or the "
+        "tuning objective? Re-tuning sigma *by* NIQE (no ground truth needed, so "
+        "still leak-free on training images) picks 0.04 for all four "
+        "configurations, and the answer is the denoiser: every one of the eight "
+        "denoised configurations in the full table is worse cross-dataset than "
+        "not denoising, monotonically in sigma. The tuning objective changed how "
+        "much harm, not whether there was harm.",
     ]
     return "\n".join(lines)
 

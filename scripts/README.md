@@ -32,7 +32,8 @@ python scripts/plot_history.py --run runs/enhance_l1 --run runs/enhance_ssim --m
 | [`input_baseline.py`](input_baseline.py) | score the *unenhanced* input through the same pipeline |
 | [`tune_denoise.py`](tune_denoise.py) | pick BM3D sigma/gamma on **training** pairs, never on eval |
 | [`results_table.py`](results_table.py) | assemble the comparison table from the summaries |
-| [`visualize_predictions.py`](visualize_predictions.py) | side-by-side qualitative grids |
+| [`visualize_predictions.py`](visualize_predictions.py) | one side-by-side qualitative grid |
+| [`make_qualitative.py`](make_qualitative.py) | **all** grids, asserting every evaluated model is pictured |
 | [`plot_history.py`](plot_history.py) | loss curves and per-module gradient norms |
 | [`convert_tf_weights.py`](convert_tf_weights.py) | port the authors' TF weights into this implementation |
 | [`verify_port.py`](verify_port.py) | **check the port against the original TF graph** |

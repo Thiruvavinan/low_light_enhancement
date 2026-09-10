@@ -1,67 +1,163 @@
 # Retinex-Net in PyTorch — what actually improves it?
 
 A from-scratch PyTorch reimplementation of **Retinex-Net** (Wei et al., BMVC
-2018), verified against the authors' released TensorFlow weights, plus four
-controlled experiments on the loss: an SSIM reconstruction term, learned loss
-weights, a fixed-weight control, and the paper's BM3D denoising step —
-evaluated in-distribution **and across three unseen datasets**, which the
-original paper compares only with pictures.
+2018), verified against the authors' released TensorFlow weights, plus three
+separate experiments on the loss — evaluated in-distribution **and across three
+unseen datasets**, which the original paper compares only with pictures.
 
-**Headline.** Separating the loss change from the denoising step changes what
-the result means. On LOL, ~85% of what the SSIM loss bought is reproduced by
-simply running BM3D — once every model is denoised they are nearly
-interchangeable. **Cross-dataset, none of it is** : the gap survives denoising
-intact, so that is where the loss change actually earns its keep, and it is the
-evaluation the original paper reports only as side-by-side pictures.
+| | question | answer |
+|---|---|---|
+| **1** | Does an SSIM reconstruction term help? | Yes, substantially, and most on the unseen datasets. |
+| **2** | Does *learning* the loss weights beat hand-setting them? | It finds better weights; it does not beat a fixed config at those same weights. |
+| **3** | Does the paper's BM3D denoising help? | In-distribution yes; cross-dataset never, at any strength tested. |
 
-Two secondary results. Learning the loss weights by homoscedastic uncertainty
-converges to `1.00 : 0.65 : 0.70` and beats the paper — but a *fixed* config at
-those same ratios matches or beats the learned one, so the method found the
-weights rather than needing to learn them. And the paper's BM3D step helps
-in-distribution yet **degrades cross-dataset naturalness in all eight
-configurations tested**, monotonically in denoising strength — a domain-shift
-failure, not a tuning mistake.
-
----
-
-## Results
-
-The experiment is a 2&times;4 factorial: **reconstruction loss** &times; **denoising on/off**.
-Denoising is a post-process available to any of these models, so mixing denoised and
-undenoised rows into one ranking would confound *which loss* with *was it denoised*.
-Full table with every metric, plus the Decom-Net variants, in
-[`outputs/results_table.md`](outputs/results_table.md).
+Read together (§4) they say something none of them says alone: **BM3D
+reproduces ~85% of Experiment 1's in-distribution gain and none of its
+cross-dataset gain.**
 
 **Protocol.** LOL `eval15` is paired, so it carries full-reference metrics
 (PSNR / SSIM / LPIPS-Alex). LIME / MEF / DICM are unpaired and unseen during
 training, so they carry NIQE only — which is why the identity row is reported:
 a no-reference score is uninterpretable without it. SSIM is RGB and
 channel-averaged; the luma variant, which is what the 0.560 usually quoted for
-Retinex-Net refers to, differs by ~0.12 and is in the full table.
+Retinex-Net refers to, differs by ~0.12 and is in the
+[full table](outputs/results_table.md). All four loss configurations share a
+frozen Decom-Net, seed, data order and 100-epoch budget; data-order equivalence
+is asserted by `scripts/check_determinism.py`, not assumed.
 
-### A. Loss function, no denoising
+---
+
+## Experiment 1 — does an SSIM reconstruction term help?
+
+L1 vs L1 + SSIM. Nothing else changes. No denoising anywhere in this table.
 
 | Model | LOL PSNR &uarr; | LOL SSIM &uarr; | LOL LPIPS &darr; | LIME NIQE &darr; | MEF NIQE &darr; | DICM NIQE &darr; |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|
 | *Identity (no enhancement)* | 7.77 | 0.1952 | 0.5595 | 4.35 | 5.19 | 3.86 |
 | *Wei et al. released weights* | 16.79 | 0.4189 | 0.4740 | 4.62 | 5.17 | 4.53 |
 | **L1 recon** — the paper | 18.26 | 0.5949 | 0.4421 | 5.03 | 4.87 | 4.12 |
-| **L1 + SSIM** | 18.68 | 0.7222 | 0.2651 | 4.24 | 3.74 | 3.05 |
-| **L1 + SSIM, uncertainty-weighted** | 19.05 | 0.7542 | 0.2215 | **3.94** | 3.50 | **2.69** |
-| **L1 + SSIM, fixed 1.00 : 0.65 : 0.70** | **19.11** | **0.7627** | **0.2055** | 4.00 | **3.47** | **2.69** |
+| **L1 + SSIM** | **18.68** | **0.7222** | **0.2651** | **4.24** | **3.74** | **3.05** |
 
-### B. Same four models, with BM3D on reflectance
+**Finding: yes, and the gain is structural rather than per-pixel** — PSNR moves
++0.42 dB while SSIM moves +0.127 and LPIPS −0.177, and all three cross-datasets
+improve.
 
-&sigma; and &gamma; tuned per model on training pairs, never on an evaluation set.
+Two things the identity row makes visible. The paper's L1 baseline is
+**NIQE-worse than doing nothing** on LIME (5.03 vs 4.35) and DICM (4.12 vs
+3.86) — `R = S / I` amplifies sensor noise by ~`1/I` in dark regions, and
+NSS-based scoring penalises that more than it rewards the added visibility. The
+SSIM configuration is the one that actually beats the untouched input.
+
+![Experiment 1, LOL](outputs/qualitative/LOL_exp1_ssim.png)
+
+*LOL eval15. The L1 column carries the amplified sensor noise; the SSIM column
+is visibly cleaner at the same brightness. Cross-dataset versions of this grid:
+[LIME](outputs/qualitative/LIME_exp1_ssim.png),
+[MEF](outputs/qualitative/MEF_exp1_ssim.png),
+[DICM](outputs/qualitative/DICM_exp1_ssim.png).*
+
+---
+
+## Experiment 2 — is *learning* the loss weights better than setting them?
+
+Homoscedastic uncertainty weighting (Kendall et al. 2018) against the hand-set
+1 : 1 : 3, and against a fixed configuration at the ratios the learned run
+converged to.
 
 | Model | LOL PSNR &uarr; | LOL SSIM &uarr; | LOL LPIPS &darr; | LIME NIQE &darr; | MEF NIQE &darr; | DICM NIQE &darr; |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **L1 recon** — the paper | 18.54 | 0.7734 | 0.2323 | 5.15 | 5.53 | 4.42 |
-| **L1 + SSIM** | 18.79 | **0.7910** | **0.1900** | 4.47 | 3.91 | 3.21 |
-| **L1 + SSIM, uncertainty-weighted** | 19.07 | 0.7717 | 0.2059 | **4.09** | 3.59 | 2.76 |
-| **L1 + SSIM, fixed 1.00 : 0.65 : 0.70** | **19.13** | 0.7773 | 0.1947 | **4.09** | **3.51** | **2.71** |
+| L1 + SSIM, hand-set 1 : 1 : 3 | 18.68 | 0.7222 | 0.2651 | 4.24 | 3.74 | 3.05 |
+| **uncertainty-weighted** *(learned)* | 19.05 | 0.7542 | 0.2215 | **3.94** | 3.50 | **2.69** |
+| **fixed 1.00 : 0.65 : 0.70** | **19.11** | **0.7627** | **0.2055** | 4.00 | **3.47** | **2.69** |
 
-### How much of the loss effect is just noise suppression?
+**Finding: learning found better weights; learning was not needed to use
+them.** Uncertainty weighting converged to `1.00 : 0.65 : 0.70` — SSIM wants
+*less* weight than L1, and smoothness wants 0.70 rather than the reference
+implementation's 3.0. Both beat the hand-set 1 : 1 : 3. But the fixed
+configuration matches or beats the learned one on 5 of 6 metrics.
+
+**The fixed weights were copied from the learned run, not found
+independently.** That is the honest ordering: uncertainty weighting is what
+*discovered* `1.00 : 0.65 : 0.70`, and this row only shows the machinery is
+unnecessary once you know the answer. It is not evidence that hand-tuning would
+have found those ratios.
+
+On Decom-Net the method found nothing at all: with all five terms learned,
+every weight scaled **13× uniformly** and the ratios stayed within **3%** of
+the paper's — an independent validation of Wei et al.'s constants, and a
+negative result for the method, since a global scale is absorbed by the
+learning rate.
+
+---
+
+## Experiment 3 — does the paper's BM3D denoising help?
+
+Every model from Experiments 1 and 2, scored with the denoiser off and on.
+BM3D is applied to reflectance before recombination with Î, with
+illumination-relative strength `w = (1 − I)^γ`. σ and γ are tuned per model on
+**training** pairs, never on an evaluation set.
+
+**Without denoising:**
+
+| Model | LOL PSNR &uarr; | LOL SSIM &uarr; | LOL LPIPS &darr; | LIME NIQE &darr; | MEF NIQE &darr; | DICM NIQE &darr; |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|
+| L1 recon — the paper | 18.26 | 0.5949 | 0.4421 | 5.03 | 4.87 | 4.12 |
+| L1 + SSIM | 18.68 | 0.7222 | 0.2651 | 4.24 | 3.74 | 3.05 |
+| uncertainty-weighted | 19.05 | 0.7542 | 0.2215 | 3.94 | 3.50 | 2.69 |
+| fixed 1.00 : 0.65 : 0.70 | 19.11 | 0.7627 | 0.2055 | 4.00 | 3.47 | 2.69 |
+
+**With BM3D (σ tuned per model on LPIPS):**
+
+| Model | LOL PSNR &uarr; | LOL SSIM &uarr; | LOL LPIPS &darr; | LIME NIQE &darr; | MEF NIQE &darr; | DICM NIQE &darr; |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|
+| L1 recon — the paper | 18.54 | 0.7734 | 0.2323 | 5.15 | 5.53 | 4.42 |
+| L1 + SSIM | 18.79 | 0.7910 | 0.1900 | 4.47 | 3.91 | 3.21 |
+| uncertainty-weighted | 19.07 | 0.7717 | 0.2059 | 4.09 | 3.59 | 2.76 |
+| fixed 1.00 : 0.65 : 0.70 | 19.13 | 0.7773 | 0.1947 | 4.09 | 3.51 | 2.71 |
+
+In-distribution every model improves — denoising nearly doubles the L1
+configuration's LOL SSIM (0.595 → 0.773) — and cross-dataset every model
+degrades. To test whether that was the denoiser or the *tuning objective*,
+σ was re-tuned on **NIQE**, which needs no ground truth and so is still
+leak-free on training images:
+
+| model | σ = 0 (none) | LPIPS-tuned σ | NIQE-tuned σ = 0.04 |
+|:---|:---:|:---:|:---:|
+| L1 recon | **4.67** | 5.03 *(&sigma;=0.16)* | 4.78 |
+| L1 + SSIM | **3.68** | 3.86 *(&sigma;=0.08)* | 3.80 |
+| uncertainty-weighted | **3.38** | 3.48 *(&sigma;=0.02)* | 3.56 |
+| fixed rebalanced | **3.38** | 3.44 *(&sigma;=0.02)* | 3.52 |
+
+**Finding: BM3D never helps out of distribution, at any strength tested.**
+Eight denoised configurations — four models × two independently chosen σ — and
+all eight are worse cross-dataset than not denoising. For every model the
+relationship is **monotonic in σ**, with the optimum at zero. The tuning
+objective changed *how much* harm, not *whether* there was harm.
+
+**The mechanism is domain shift**, and one detail pins it. LPIPS-optimal σ
+varies 8× across models (0.16 → 0.02) because it is correcting *the model*: a
+noisier output wants more smoothing. NIQE-optimal σ is **0.04 for all four**,
+because it responds to the *input sensor noise*, which is identical in every
+case. A σ set by LOL's noise has no reason to suit LIME, MEF or DICM — and
+measured on held-out LOL images it transfers fine (−0.41 on the tuning set,
+−0.42 on eval15). It fails only when the dataset changes.
+
+That points at the fix this project did not try: estimate σ per dataset, or per
+image from the input's own noise, rather than fitting one value on LOL.
+
+![Experiment 3, denoising](outputs/qualitative/LOL_exp3_denoise_l1.png)
+
+*Denoiser off, then LPIPS-tuned σ=0.16, then NIQE-tuned σ=0.04. The LPIPS
+setting is visibly the most smoothed — which is what it was selected to be, and
+why NIQE scores it worst.*
+
+---
+
+## 4. How the three connect
+
+Experiment 3 is not just a negative result about denoising — it measures how
+much of Experiment 1's gain was noise suppression all along. Applying BM3D to
+*every* loss configuration collapses the spread between them:
 
 | Metric | spread without BM3D | spread with BM3D | absorbed |
 |:---|:---:|:---:|:---:|
@@ -69,22 +165,39 @@ Retinex-Net refers to, differs by ~0.12 and is in the full table.
 | LOL SSIM &uarr; | 0.1678 | 0.0192 | **+89%** |
 | cross-dataset NIQE &darr; | 1.2936 | 1.5976 | **-24%** |
 
-**This is the finding the split makes visible.** On LOL, a generic denoiser
-reproduces ~85% of what the loss change bought — once every model is denoised
-they are close to interchangeable, and the LPIPS ranking even reorders.
-Cross-dataset the spread does not collapse at all. So the SSIM term's
-**in-distribution advantage is largely noise suppression**, which BM3D also
-provides; its **out-of-distribution advantage is something else**, and it
-survives denoising.
+**On LOL a generic denoiser reproduces ~85% of what the loss change bought** —
+denoise all four and they are close to interchangeable, and the LPIPS ranking
+even reorders. **Cross-dataset the spread does not collapse at all.**
 
-That makes the cross-dataset column the one that actually justifies the loss
-change — and it is exactly the column the original paper reports only as
-side-by-side pictures.
+So the SSIM term's in-distribution advantage is largely noise suppression,
+which an off-the-shelf denoiser also provides. Its out-of-distribution
+advantage is something else, and it survives denoising. That makes the
+cross-dataset column the one that actually justifies the loss change — and it
+is exactly the column the original paper reports only as side-by-side pictures.
 
-![LOL comparison](outputs/qualitative/LOL_l1_ssim_rebalanced.png)
+![Experiment 2, weights](outputs/qualitative/LOL_exp2_weights.png)
 
-*LOL eval15, evenly-spaced sample (not hand-picked). More grids, including the
-BM3D effect, in [`outputs/qualitative/`](outputs/qualitative/).*
+*All samples are evenly spaced across the benchmark, never hand-picked.
+Thirteen grids covering **every** model in the results table — including the
+Decom-Net variants, the ported reference weights, and the learned
+decomposition itself — are in
+[`outputs/qualitative/`](outputs/qualitative/), regenerated by
+`scripts/make_qualitative.py`, which fails if any evaluated model is not
+pictured somewhere.*
+
+**What not to read into it.** One seed per configuration, no error bars. BM3D
+σ was tuned on training images the network had already seen. Cross-dataset
+counts (LIME 10 / MEF 79 / DICM 44) differ from the paper's text, so absolute
+NIQE is not comparable to papers using other bundles — though every
+configuration sees identical images, so the comparison between them holds. And
+this L1 baseline *beats* the authors' released checkpoint (18.26 vs 16.79
+PSNR), most likely from training at 96×96 patches rather than the released
+code's 48×48 default, so the margins sit on top of a strong baseline.
+
+The L1 and L1+SSIM runs also end at almost identical training L1 (0.1116 vs
+0.1114), which is what "structural rather than per-pixel" means concretely:
+the SSIM term did not fit pixels better, it changed how the residual error is
+distributed.
 
 ---
 
@@ -126,68 +239,6 @@ PyTorch's symmetric `padding=1` on a stride-2 conv is not TensorFlow's `SAME`,
 and the mismatch produced outputs off by 0.27/1.0 that still looked like
 plausible enhanced images. `scripts/check_determinism.py` separately proves
 every configuration sees identical training data.
-
----
-
-## Probable explanation
-
-**The gain is structural, not per-pixel — and mostly it is noise.** L1 and
-L1+SSIM end at almost identical training L1 (0.1116 vs 0.1114) and PSNR moves
-only +0.42 dB, while SSIM moves +0.127 and LPIPS −0.177. The SSIM term did not
-fit pixels better; it changed how the residual error is *distributed*. The
-factorial pins down what that redistribution mostly is: noise. A generic
-denoiser reproduces ~85% of it on LOL, and does not reproduce the
-cross-dataset gain at all.
-
-**Learned weights found something real, then proved redundant.** Homoscedastic
-uncertainty weighting converged to `1.00 : 0.65 : 0.70` — SSIM wants *less*
-weight than L1, and smoothness wants 0.70 rather than the reference
-implementation's 3.0. But those three numbers as *fixed* weights match or beat
-the learned configuration on 5 of 6 metrics, so the method's contribution was
-finding the weights, not learning them.
-
-On Decom-Net it found nothing: with all five terms learned, every weight
-scaled **13× uniformly** and the ratios stayed within **3%** of the paper's.
-An independent validation of Wei et al.'s constants, and a negative result for
-the method — a global scale is absorbed by the learning rate.
-
-**BM3D never helps out of distribution — at any strength tested.** Denoising
-nearly doubles the L1 configuration's LOL SSIM (0.595 → 0.773), and degrades
-cross-dataset NIQE for **every** model. Running all four loss configurations
-at two independently chosen σ values gives eight denoised configurations, and
-all eight are worse cross-dataset than not denoising at all:
-
-| model | σ = 0 (none) | LPIPS-tuned σ | NIQE-tuned σ = 0.04 |
-|:---|:---:|:---:|:---:|
-| L1 recon | **4.67** | 5.03 *(σ=0.16)* | 4.78 |
-| L1 + SSIM | **3.68** | 3.86 *(σ=0.08)* | 3.80 |
-| uncertainty-weighted | **3.38** | 3.48 *(σ=0.02)* | 3.56 |
-| fixed rebalanced | **3.38** | 3.44 *(σ=0.02)* | 3.52 |
-
-For every model the relationship is **monotonic in σ**: more denoising, worse
-cross-dataset naturalness, with the optimum at zero. So the tuning objective
-was a red herring — it changed *how much* harm, not *whether* there was harm.
-
-The diagnosis is domain shift, and one detail pins it down. LPIPS-optimal σ
-varies 8× across models (0.16 → 0.02) because it is correcting *the model*:
-the noisier the output, the more smoothing it wants. NIQE-optimal σ is
-**0.04 for all four**, because it is responding to the *input sensor noise*,
-which is the same in every case. A σ set by LOL's noise has no reason to suit
-LIME, MEF or DICM — and measured on held-out LOL images it transfers fine
-(−0.41 on the tuning set, −0.42 on eval15). It fails only when the dataset
-changes.
-
-That points at the fix this project did not try: estimate σ per dataset, or
-per image from the input's own noise, rather than fitting one value on LOL.
-
-**What not to read into it.** One seed per configuration, no error bars. BM3D
-σ was tuned on training images the network had already seen. Cross-dataset
-counts (LIME 10 / MEF 79 / DICM 44) differ from the paper's text, so absolute
-NIQE is not comparable to papers using other bundles — though every
-configuration sees identical images, so the comparison between them holds. And
-this L1 baseline *beats* the authors' released checkpoint (18.26 vs 16.79
-PSNR), most likely from training at 96×96 patches rather than the released
-code's 48×48 default, so the margins sit on top of a strong baseline.
 
 ---
 
