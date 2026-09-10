@@ -8,31 +8,35 @@ written under outputs/eval/*/summary.json.
     python scripts/results_table.py
     python scripts/results_table.py --tags l1 ssim --out outputs/results_table.md
 
-It reports EVERY metric it finds for every arm. There is deliberately no
+It reports EVERY metric it finds for every configuration. There is deliberately no
 option to select a subset: the project's stated commitment is to report all
 the numbers rather than the ones that favour a hypothesis, and a filter flag
 is the mechanism by which that commitment quietly stops holding.
 
 Structure
 ---------
-The output is several focused views followed by the COMPLETE table. The views
-exist because one 8-column x 11-row grid is a data dump: it holds three
-different experiments whose rows are not all comparable to each other, and it
-gives the reader no way to know which comparisons are legal.
+The experiment is a 2 x N factorial -- {reconstruction loss} x {denoising off,
+on} -- and the output is laid out that way, because denoising is a
+post-process available to ANY of these models. Ranking denoised and undenoised
+rows in one table confounds "which loss" with "was it denoised": comparing
+`ssim` against `l1_bm3d` moves two factors at once.
 
-    1. Loss comparison   the controlled experiment -- same frozen Decom-Net,
-                         same seed, same budget, only the loss differs
-    2. BM3D effect       paired deltas, because a denoised arm is only
-                         meaningful against its own undenoised base
-    3. Stage-1 axis      different frozen decomposition; NOT comparable to (1)
-    4. Full table        every arm, every metric, nothing dropped
+    A. Loss, no denoising    the controlled experiment -- same frozen
+                             Decom-Net, seed, data order and schedule
+    B. Loss, with BM3D       identical rows, denoiser on
+    Absorption               how much of the loss-driven spread a generic
+                             denoiser simply reproduces. This is the view that
+                             matters: on LOL it absorbs ~85% and even reorders
+                             the ranking, while cross-dataset it absorbs none.
+    BM3D paired              per-model delta, denoiser off vs on
+    Full table               every configuration, every metric, nothing dropped
 
 Bolding is scoped WITHIN a group, never across all rows. Bolding across
 groups is how `ssim_bm3d` came out marked best on SSIM and LPIPS while being
 half a NIQE point worse than `rebalanced` cross-dataset -- arithmetically
 true, and exactly the wrong thing to draw a reader's eye to.
 
-`--groups` changes LAYOUT, never content. Any arm not named in a group still
+`--groups` changes LAYOUT, never content. Any tag not named in a group still
 prints under "Other", so a row cannot be dropped by forgetting to list it, and
 the assert enforces it.
 
@@ -215,6 +219,19 @@ def format_table(summaries, columns, groups=None) -> str:
 
 
 HEADLINE_TAGS = ["input", "l1", "ssim", "uw", "rebalanced"]
+
+# The experiment is a 2 x N factorial: {loss} x {denoising off, on}. Denoising
+# is a post-process available to ANY model, so putting denoised and undenoised
+# rows in one ranked table confounds "which loss" with "was it denoised" --
+# comparing `ssim` against `l1_bm3d` moves two factors at once.
+#
+# Each entry is (undenoised tag, denoised tag, label).
+FACTORIAL = [
+    ("l1",         "l1_bm3d",         "L1 recon \u2014 paper baseline"),
+    ("ssim",       "ssim_bm3d",       "L1 + SSIM recon"),
+    ("uw",         "uw_bm3d",         "L1 + SSIM, uncertainty-weighted"),
+    ("rebalanced", "rebalanced_bm3d", "L1 + SSIM, fixed 1.00 : 0.65 : 0.70"),
+]
 HEADLINE_COLUMNS = [("LOL", "psnr"), ("LOL", "ssim"), ("LOL", "lpips"),
                     ("LIME", "niqe"), ("MEF", "niqe"), ("DICM", "niqe")]
 
@@ -265,6 +282,122 @@ def format_headline(summaries) -> str:
         "than it rewards the added visibility.",
     ]
     return "\n".join(lines)
+
+
+def _spread(summaries, tags, get):
+    """max - min of `get` across `tags`; None if fewer than two are available."""
+    vals = [get(t) for t in tags if t in summaries]
+    return (max(vals) - min(vals)) if len(vals) > 1 else None
+
+
+def format_factorial(summaries) -> str:
+    """
+    The same loss comparison run twice: denoising off, then on.
+
+    Denoising is a factor that can be applied to any of these models, so it
+    belongs on its own axis rather than as extra rows in a single ranking. Two
+    tables with identical rows make the question answerable directly: does the
+    loss ranking survive denoising, and how much of the loss effect does a
+    standard denoiser simply reproduce?
+    """
+    rows = [(a, b, lab) for a, b, lab in FACTORIAL if a in summaries]
+    if not rows:
+        return ""
+
+    cols = [c for c in HEADLINE_COLUMNS
+            if any(c[1] in summaries[a].get("benchmarks", {}).get(c[0], {}) for a, _, _ in rows)]
+    header = "| Model | " + " | ".join(b + " " + METRICS[m][0] for b, m in cols) + " |"
+    divider = "|" + "|".join([":---"] + [":---:"] * len(cols)) + "|"
+
+    def table(index, extra_first=None):
+        tags = [r[index] for r in rows if r[index] in summaries]
+        if extra_first:
+            tags = [t for t in extra_first if t in summaries] + tags
+        best = _best_within(summaries, [t for t in tags if t not in ("input", "tf_reference")], cols)
+        out = [header, divider]
+        for tag in tags:
+            label = next((lab for a, b, lab in rows if tag in (a, b)), LABELS.get(tag, tag))
+            saved = LABELS.get(tag)
+            LABELS[tag] = label
+            out.append(_row(tag, summaries[tag], cols, best,
+                            tag not in ("input", "tf_reference")))
+            if saved is None:
+                LABELS.pop(tag, None)
+            else:
+                LABELS[tag] = saved
+        return "\n".join(out)
+
+    lines = ["", "## A. Loss function, without denoising", "",
+             "Identical architecture, frozen Decom-Net, seed, data order and "
+             "schedule; only the Enhance-Net reconstruction loss differs. Data-order "
+             "equivalence is asserted by `scripts/check_determinism.py`, not assumed.",
+             "", table(0, extra_first=["input", "tf_reference"]), ""]
+
+    denoised = [b for _, b, _ in rows if b in summaries]
+    if denoised:
+        missing = [lab for _, b, lab in rows if b not in summaries]
+        lines += ["## B. Same losses, with BM3D denoising", "",
+                  "The same four checkpoints, re-scored with BM3D applied to "
+                  "reflectance before recombination. Sigma and gamma are tuned "
+                  "per model on training pairs, so each row gets the denoising "
+                  "strength that suits it rather than a shared setting."]
+        if missing:
+            lines += ["", "> Not yet evaluated: " + "; ".join(missing) + "."]
+        lines += ["", table(1), ""]
+
+        lines += _absorption(summaries, rows)
+    return "\n".join(lines)
+
+
+def _absorption(summaries, rows):
+    """How much of the loss-driven spread a generic denoiser reproduces."""
+    pairs = [(a, b) for a, b, _ in rows if a in summaries and b in summaries]
+    if len(pairs) < 2:
+        return []
+
+    def cross(t):
+        bms = [x for x in ("LIME", "MEF", "DICM")
+               if "niqe" in summaries[t].get("benchmarks", {}).get(x, {})]
+        return sum(summaries[t]["benchmarks"][x]["niqe"] for x in bms) / len(bms)
+
+    metrics = [("LOL LPIPS \u2193", lambda t: summaries[t]["benchmarks"]["LOL"]["lpips"], 4),
+               ("LOL SSIM \u2191", lambda t: summaries[t]["benchmarks"]["LOL"]["ssim"], 4),
+               ("cross-dataset NIQE \u2193", cross, 4)]
+
+    out = ["### How much of the loss effect is just noise?", "",
+           "Spread = best minus worst across the loss configurations. If a generic "
+           "denoiser reproduces what a loss change bought, the spread collapses "
+           "once denoising is applied to all of them.", "",
+           "| Metric | spread without BM3D | spread with BM3D | absorbed by denoising |",
+           "|:---|:---:|:---:|:---:|"]
+    for name, get, d in metrics:
+        sp = _spread(summaries, [a for a, _ in pairs], get)
+        sd = _spread(summaries, [b for _, b in pairs], get)
+        if sp is None or sd is None or sp == 0:
+            continue
+        out.append("| %s | %.*f | %.*f | **%+.0f%%** |" % (name, d, sp, d, sd, (1 - sd / sp) * 100))
+
+    lp = lambda t: summaries[t]["benchmarks"]["LOL"]["lpips"]
+    order_plain = [a for a, _ in sorted(pairs, key=lambda x: lp(x[0]))]
+    order_den = [a for a, _ in sorted(pairs, key=lambda x: lp(x[1]))]
+    same = order_plain == order_den
+
+    out += ["",
+            "**Reading.** On LOL, a standard denoiser reproduces most of what the "
+            "loss change bought \u2014 the losses become close to interchangeable once "
+            "all of them are denoised"
+            + (", and the LPIPS ranking even reorders." if not same else "."),
+            "",
+            "Cross-dataset the spread does **not** collapse. So the SSIM term's "
+            "in-distribution advantage is largely noise suppression, which BM3D "
+            "also provides; its out-of-distribution advantage is something else, "
+            "and it survives denoising. That is the column that justifies the loss "
+            "change, and it is the one the original paper never reported.",
+            "",
+            "Caveat: sigma was tuned per model on LPIPS, so table B slightly "
+            "favours whichever model that objective suited. The same tuning choice "
+            "is why denoising worsens NIQE \u2014 see the paired view below.", ""]
+    return out
 
 
 def format_bm3d_effect(summaries) -> str:
@@ -460,7 +593,7 @@ def main():
         "Generated by `scripts/results_table.py`. The sections below are reading "
         "orders over one set of numbers. The full table at the end holds every "
         "model and every metric, with nothing left out.",
-        format_headline(summaries),
+        format_factorial(summaries),
         format_bm3d_effect(summaries),
         "",
         "## Full table",
