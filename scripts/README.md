@@ -16,6 +16,7 @@ python scripts/train.py --config configs/enhance_ssim.yaml  # stage 2, variant
 
 python scripts/evaluate.py --checkpoint runs/enhance_l1/last.pth   --tag l1   --save-decomposition
 python scripts/evaluate.py --checkpoint runs/enhance_ssim/last.pth --tag ssim
+python scripts/input_baseline.py --tag input          # the identity row -- see below
 python scripts/results_table.py
 
 python scripts/visualize_predictions.py --benchmark LOL  --tags l1 ssim --n 4
@@ -28,6 +29,8 @@ python scripts/plot_history.py --run runs/enhance_l1 --run runs/enhance_ssim --m
 | [`prepare_data.py`](prepare_data.py) | unpack the archives into the layout `data/datasets/` expects |
 | [`train.py`](train.py) | train either stage; the stage is whatever the config says |
 | [`evaluate.py`](evaluate.py) | score one checkpoint on every benchmark, write `summary.json` |
+| [`input_baseline.py`](input_baseline.py) | score the *unenhanced* input through the same pipeline |
+| [`tune_denoise.py`](tune_denoise.py) | pick BM3D sigma/gamma on **training** pairs, never on eval |
 | [`results_table.py`](results_table.py) | assemble the comparison table from the summaries |
 | [`visualize_predictions.py`](visualize_predictions.py) | side-by-side qualitative grids |
 | [`plot_history.py`](plot_history.py) | loss curves and per-module gradient norms |
@@ -75,6 +78,28 @@ It was written after finding that the dataset originally drew crops from
 ignored the configured seed. Every run saw a different crop stream, nothing
 crashed, no output looked wrong, and the docs claimed identical data across
 arms. Seed handling is either tested or quietly untrue.
+
+## `input_baseline.py` is not optional
+
+It scores the unenhanced input through the identical pipeline. NIQE is a
+no-reference metric, so without that row "B beats A" says nothing about
+whether either beat doing nothing — and here it turned out that the paper's
+own L1 loss scores *worse* NIQE than the untouched input on two of three
+cross-datasets. Drop the row and the table reads "both work, one works
+better", which is wrong.
+
+## `tune_denoise.py` tunes on TRAINING pairs
+
+Choosing BM3D's sigma on eval15 would make the reported LOL numbers a
+best-of-N over the test set, and the cross-dataset numbers would inherit that
+choice. It sweeps `our485` instead. Known weakness, stated rather than hidden:
+those images were seen during training, so the chosen sigma is not guaranteed
+optimal at eval time — but nothing in an evaluation set influenced it.
+
+It selects on LPIPS by default, and that choice turned out to matter: the
+resulting sigma improves full-reference metrics and *degrades* no-reference
+NIQE on every arm. Selecting a hyperparameter on one metric family and
+reporting it on another is a design error; see the root README.
 
 ## Figures come from saved predictions, not fresh inference
 

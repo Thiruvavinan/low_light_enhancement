@@ -7,9 +7,12 @@ overriding.
 
 | file | stage | what it is |
 |---|---|---|
-| [`decom.yaml`](decom.yaml) | 1 | Decom-Net. Trained **once**, shared by both arms. |
+| [`decom.yaml`](decom.yaml) | 1 | Decom-Net with the paper's fixed weights. Trained **once**, shared by every stage-2 arm. |
+| [`decom_uw.yaml`](decom_uw.yaml) | 1 | Decom-Net with learned weights. Produces a **different** decomposition, so stage-2 runs on top of it are a separate axis. |
 | [`enhance_l1.yaml`](enhance_l1.yaml) | 2 | Baseline: the paper's L1 reconstruction loss. |
 | [`enhance_ssim.yaml`](enhance_ssim.yaml) | 2 | Variant: L1 + SSIM reconstruction loss. |
+| [`enhance_uw.yaml`](enhance_uw.yaml) | 2 | Same loss, weights learned by homoscedastic uncertainty. |
+| [`enhance_rebalanced.yaml`](enhance_rebalanced.yaml) | 2 | Control: the ratios `enhance_uw` learned, as fixed weights. |
 
 ```bash
 python scripts/train.py --config configs/decom.yaml        # run this first
@@ -19,13 +22,27 @@ python scripts/train.py --config configs/enhance_ssim.yaml
 
 ## The control
 
-The two stage-2 configs differ in **exactly two substantive places**:
+`enhance_l1.yaml` and `enhance_ssim.yaml` differ in **exactly two substantive
+places** — the pair that isolates the SSIM term:
 `experiment.name`/`output_dir`, and `loss.ssim_weight`. That is checkable, and
 it should be checked:
 
 ```bash
 diff configs/enhance_l1.yaml configs/enhance_ssim.yaml
 ```
+
+The other two stage-2 configs vary the *weighting* of those same terms rather
+than which terms exist, and each is paired with the arm it is meant to be read
+against:
+
+| pair | isolates |
+|---|---|
+| `enhance_l1` vs `enhance_ssim` | whether an SSIM term helps at all |
+| `enhance_ssim` vs `enhance_uw` | whether learning the weights beats 1.0 / 1.0 / 3.0 |
+| `enhance_uw` vs `enhance_rebalanced` | whether *learning* them beats just typing the learned values |
+
+That last pair is the one that matters: it answers whether the method earned
+its complexity. It did not — see the root README.
 
 Three further things enforce the control beyond the diff:
 
